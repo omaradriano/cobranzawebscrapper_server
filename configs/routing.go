@@ -2,16 +2,35 @@ package configs
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"regexp"
 	"strings"
 
+	"github.com/omaradriano/cobranzawebscrapper_server/internal"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/handlers"
 )
 
+type Env struct {
+	DbClient *sql.DB
+}
+
 var routes = []route{
-	newRoute("GET", "/v1/cobranzasItems", handlers.ApiGetCobranzasItems),
-	newRoute("POST", "/v1/cobranzasItems", handlers.ApiPostCobranzasItems),
+	newRoute("GET", "/v1/cobranzasItems/([^/]+)", handlers.ApiGetCobranzasItems),
+	newRoute("POST", "/v1/cobranzaItem", handlers.ApiPostCobranzaItem),
+	// newRoute("PATCH", "/v1/cobranzaItem", handlers.ApiPatchCobranzaItem),
+	newRoute("PATCH", "/v1/cobranzaItemPayment", handlers.ApiPatchItemPayment),
+	newRoute("POST", "/v1/cobranzaAllItems", handlers.ApiPostCobranzaAllItems),
+	// newRoute("PATCH", "/v1/cobranzaFewItems", handlers.ApiPatchFewCobranzas),
+
+	newRoute("POST", "/v1/auth/authenticate/google", handlers.ApiAuthenticateUserByGoogle),
+	newRoute("POST", "/v1/auth/authenticate/manual", handlers.ApiAuthenticateUserByCredentials),
+	newRoute("POST", "/v1/auth/register", handlers.ApiRegisterUser),
+	newRoute("POST", "/v1/auth/resetpasswordmail", handlers.ApiResetPasswordMail),
+	newRoute("GET", "/v1/auth/verifyaccount", handlers.ApiVerifyAccount),
+	newRoute("GET", "/v1/auth/checkSession", handlers.ApiCheckSession),
+	newRoute("POST", "/v1/auth/setpassword", handlers.ApiSetPassword),
+	newRoute("GET", "/v1/auth/verifyPasswordExist/([^/]+)", handlers.ApiCheckPasswordExist),
 }
 
 func newRoute(method, pattern string, handler http.HandlerFunc) route {
@@ -33,7 +52,7 @@ func Serve(w http.ResponseWriter, r *http.Request) {
 				allow = append(allow, route.method)
 				continue
 			}
-			ctx := context.WithValue(r.Context(), handlers.CtxKey{}, matches[1:])
+			ctx := context.WithValue(r.Context(), internal.CtxKey{}, matches[1:])
 			route.handler(w, r.WithContext(ctx))
 			return
 		}
