@@ -8,23 +8,35 @@ type Env struct {
 
 type CtxKey struct{}
 
-type CobranzaItem struct {
-	Asegurado    string `json:"asegurado"`
-	Contratante  string `json:"contratante"`
-	DiaCobro     int8   `json:"dia_cobro"`
-	Estatus      string `json:"estatus"`
-	FechaEmision string `json:"fecha_emision"`
-	FormaPago    string `json:"forma_pago"`
-	MedioCobro   string `json:"medio_cobro"`
-	NumPoliza    string `json:"num_poliza"`
-	Plan         string `json:"plan"`
-	TipoSeguro   string `json:"tipo_seguro"`
-	Asegurador   string `json:"contratante_uuid,omitempty"`
-
-	Direccion Address `json:"direccion"`
+/*
+DTO para subir datos a la base de datos
+*/
+type PostItem_Poliza struct {
+	Asegurado    string  `json:"asegurado"`
+	Contratante  string  `json:"contratante"`
+	DiaCobro     int8    `json:"dia_cobro"`
+	Direccion    Address `json:"direccion"`
+	Estatus      string  `json:"estatus"`
+	FechaEmision string  `json:"fecha_emision"`
+	FormaPago    string  `json:"forma_pago"`
+	MedioCobro   string  `json:"medio_cobro"`
+	NumPoliza    string  `json:"num_poliza"`
+	Plan         string  `json:"plan"`
+	TipoSeguro   string  `json:"tipo_seguro"`
 }
 
-type PolizaDataItem struct {
+type Address struct {
+	Calle        string `json:"calle"`
+	CodigoPostal string `json:"codigo_postal"`
+	Ciudad       string `json:"ciudad"`
+	Estado       string `json:"estado"`
+	Colonia      string `json:"colonia"`
+}
+
+/*
+DTO para obtener datos de la base de datos
+*/
+type GetItem_Poliza struct {
 	Asegurado    string `json:"asegurado"`
 	Contratante  string `json:"contratante"`
 	DiaCobro     int8   `json:"diaCobro"`
@@ -35,21 +47,12 @@ type PolizaDataItem struct {
 	NumPoliza    string `json:"num_poliza"`
 	Plan         string `json:"plan"`
 	TipoSeguro   string `json:"tipo_seguro"`
-	HasLog       int    `json:"haslog"`
 
 	Direccion Address `json:"direccion"`
 
 	SiguientePago string `json:"next_payment"`
 	PolizaUUID    string `json:"poliza_uuid"`
 	UserUUID      string `json:"user_uuid"`
-}
-
-type Address struct {
-	Calle        string `json:"calle"`
-	CodigoPostal string `json:"codigo_postal"`
-	Ciudad       string `json:"ciudad"`
-	Estado       string `json:"estado"`
-	Colonia      string `json:"colonia"`
 }
 
 type HttpError struct {
@@ -65,8 +68,12 @@ type HttpSuccess struct {
 	Payload interface{} `json:"payload,omitempty"`
 }
 
+type PostItems_Poliza struct {
+	Payload []PostItem_Poliza `json:"payload"`
+}
+
 type CobranzaItems struct {
-	Payload []CobranzaItem `json:"payload"`
+	Payload []GetItem_Poliza `json:"payload"`
 }
 
 type CobranzaPatchItems struct {
@@ -85,12 +92,20 @@ type CobranzaItemPayment struct {
 	Asegurador string `json:"asegurador"`
 }
 
+/*
+ * AUTHENTICATION
+ */
+
 type Token struct {
 	Token string `json:"token"`
 }
 
 type Google_Token struct {
 	Payload Token
+}
+
+type JWTClaims struct {
+	Email string `json:"email"`
 }
 
 type Google_User_Response struct {
@@ -110,14 +125,16 @@ type Verify_Password_Response struct {
 }
 
 type SetPasswordCredentials struct {
-	ResetToken string `json:"resettoken"`
-	Password   string `json:"password"`
+	ResetToken   string `json:"resettoken"`
+	Password     string `json:"password"`
+	NumeroAsesor string `json:"no_asesor"`
 }
 
 type UserAseguradorRegister struct {
-	Email     string  `json:"email"`
-	Password  string  `json:"password"`
-	Insurance *string `json:"insurance,omitempty"`
+	Email        string  `json:"email"`
+	Password     string  `json:"password"`
+	Insurance    *string `json:"insurance,omitempty"`
+	NumeroAsesor string  `json:"no_asesor"`
 }
 
 type LoginUserCredentials struct {
@@ -131,4 +148,13 @@ type DbUserCredentials struct {
 
 type ResetPasswordCredentials struct {
 	Email string `json:"email"`
+}
+
+type PolizasUserDetails struct {
+	Total             int `json:"total"`
+	Activas           int `json:"activas"`
+	Inactivas         int `json:"inactivas"`
+	PorVencer         int `json:"por_vencer"`
+	CoberturaActiva   int `json:"cobertura_activa"`
+	SinPagoRegistrado int `json:"sin_pago_registrado"`
 }

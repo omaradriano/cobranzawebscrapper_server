@@ -24,6 +24,7 @@ func HandleResponseError(Code int, Message string, w http.ResponseWriter) {
 
 	jsonResponse, err := json.Marshal(customErr)
 	if err != nil {
+		NewLogger().ErrorMessage(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -42,6 +43,7 @@ func HandleResponseSuccessWithData(Payload interface{}, w http.ResponseWriter) {
 
 	jsonResponse, err := json.Marshal(customSuccess)
 	if err != nil {
+		NewLogger().ErrorMessage(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -63,12 +65,12 @@ func HandleResponseSuccess(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(customSuccess)
 }
 
-func GenerateJWT(userID string) (string, error) {
+func GenerateJWT(user_uuid, email string) (string, error) {
 	claims := jwt.MapClaims{
-		"user_id": userID,
-		"exp":     time.Now().Add(time.Hour * 24).Unix(),
-		"email":   "ejemploEmail",
-		"role":    "admin",
+		"user_uuid": user_uuid,
+		"exp":       time.Now().Add(time.Hour * 24).Unix(),
+		"email":     email,
+		"role":      "testRole",
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -91,24 +93,26 @@ func GenerateSecureToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func ValidateResetToken(token string) (string, error) {
+func ValidateResetToken(token string) (string, string, error) {
 	var user_uuid string
+	var email string
 	var expires time.Time
 
 	err := db.Client.QueryRow(`
-		SELECT user_uuid, reset_expires
+		SELECT user_uuid, email, reset_expires
 		FROM users_aseguradores
 		WHERE reset_token = $1
-	`, token).Scan(&user_uuid, &expires)
+	`, token).Scan(&user_uuid, &email, &expires)
 	if err != nil {
-		return "", fmt.Errorf("token inválido")
+		fmt.Println(err.Error())
+		return "", "", fmt.Errorf("token inválido")
 	}
 
 	if time.Now().After(expires) {
-		return "", fmt.Errorf("token expirado")
+		return "", "", fmt.Errorf("token expirado")
 	}
 
-	return user_uuid, nil
+	return user_uuid, email, nil
 }
 
 func ValidateConfirmationToken(token string) (string, error) {

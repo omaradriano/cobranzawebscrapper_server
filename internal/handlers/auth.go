@@ -10,6 +10,7 @@ import (
 
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal"
+	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
 )
 
@@ -116,6 +117,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	var google_user_response internal.Google_User_Response
+	var user_uuid string
 
 	err = json.NewDecoder(resp.Body).Decode(&google_user_response)
 	if err != nil {
@@ -129,7 +131,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 	 */
 
 	rows, err := db.Client.Query(
-		`SELECT email FROM users_aseguradores WHERE email = $1`,
+		`SELECT email, user_uuid FROM users_aseguradores WHERE email = $1`,
 		google_user_response.Email,
 	)
 	if err != nil {
@@ -143,7 +145,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 
 	var email string
 	for rows.Next() {
-		if err := rows.Scan(&email); err != nil {
+		if err := rows.Scan(&email, &user_uuid); err != nil {
 			fmt.Println(err.Error())
 			services.HandleResponseError(http.StatusInternalServerError, "Error al leer datos", w)
 			return
@@ -158,7 +160,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 
 	var ServerResponse internal.Server_Response_With_Token
 
-	ServerResponse.JWT_Token, err = services.GenerateJWT(google_user_response.Google_ID)
+	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, email)
 	if err != nil {
 		services.HandleResponseError(http.StatusInternalServerError, "Error al obtener jwt token", w)
 	}
@@ -171,7 +173,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 		 * El usuario no existe por lo que hay que proceder a registro del mismo
 		 */
 		fmt.Println("No se encontró usuario, hay que crear uno nuevo")
-		createUserQuery := `INSERT INTO users_aseguradores (email, is_verified) VALUES ($1, true)`
+		createUserQuery := `INSERT INTO users_aseguradores (email, is_verified, no_asesor) VALUES ($1, true, '000000')`
 		_, err := db.Client.Exec(createUserQuery, google_user_response.Email)
 		if err != nil {
 			fmt.Println("Error al insertar un nuevo usuario con validacion google:", err)
@@ -215,6 +217,7 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 		WHERE email = $1
 		`, login_credentials.Email).
 		Scan(&db_credentials.Email, &db_credentials.Password, &user_uuid, &is_account_verified)
+	fmt.Println(db_credentials.Email)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			fmt.Println(err.Error())
@@ -245,29 +248,35 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid)
+	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, db_credentials.Email)
 	// ServerResponse.Email = db_credentials.Email
 
 	services.HandleResponseSuccessWithData(ServerResponse, w)
 }
 
 func ApiCheckSession(w http.ResponseWriter, r *http.Request) {
+	// 1. Configuramos Headers (CORS)
 	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
-	fmt.Println("Request from ApiCheckSession")
-	fmt.Printf("----------------------------------------\n")
+	var session_claims internal.JWTClaims
 
-	jwt_header := r.Header.Get("Authorization")
+	// 2. Extraemos los claims que el Middleware inyectó en el contexto
+	// Nota: Usa las llaves que definiste en tu middleware (ej. configs.UserIDKey)
+	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
+	userEmail, _ := r.Context().Value(middlewares.UserEmailKey).(string)
 
-	real_jwt := strings.Split(jwt_header, " ")
+	// Logging para depuración en tu servidor
+	fmt.Printf("--- Sesión Verificada ---\n")
+	fmt.Printf("User UUID: %s\n", userUUID)
+	fmt.Printf("Email:     %s\n", userEmail)
+	fmt.Printf("-------------------------\n")
 
-	_, err := services.ValidateJWT(real_jwt[1])
-	if err != nil {
-		services.HandleResponseError(http.StatusInternalServerError, "No existen una sesión activa", w)
-	}
+	session_claims.Email = userEmail
 
-	services.HandleResponseSuccess(w)
+	// 3. Si llegamos aquí, el middleware ya validó el JWT.
+	// Simplemente respondemos éxito.
+	services.HandleResponseSuccessWithData(session_claims, w)
 }
 
 func ApiSetPassword(w http.ResponseWriter, r *http.Request) {
@@ -275,49 +284,76 @@ func ApiSetPassword(w http.ResponseWriter, r *http.Request) {
 		 * http://127.0.0.1:3006/v1/auth/setpassword?token=1234abcd
 			* body:
 			* {
-			* 	"password":string
+			* 	"password":string,
+			* 	"no_asesor":string
 			* }
 	*/
 	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
-	fmt.Println("Request from ApiCheckSession")
+	fmt.Println("Request from ApiSetPassword")
 	fmt.Printf("----------------------------------------\n")
 
 	var password_credentials internal.SetPasswordCredentials
+	var no_asesor string
 
 	password_credentials.ResetToken = r.URL.Query().Get("token")
 
 	err := json.NewDecoder(r.Body).Decode(&password_credentials)
 	if err != nil {
-		fmt.Println("Error decoding JSON on ApiSetPassword:", err)
+		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusBadRequest, "No se ha podido recuperar formato json de ApiSetPassword", w)
 		return
 	}
 
-	user_uuid, err := services.ValidateResetToken(password_credentials.ResetToken)
+	fmt.Println(password_credentials.NumeroAsesor)
+
+	user_uuid, email, err := services.ValidateResetToken(password_credentials.ResetToken)
 	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusBadRequest, err.Error(), w)
 		return
 	}
 
-	fmt.Printf(`Se cambiara la contraseña de: %s`, password_credentials.ResetToken)
+	err = db.Client.QueryRow(`SELECT no_asesor FROM users_aseguradores WHERE user_uuid = $1`, user_uuid).
+		Scan(&no_asesor)
+	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
+		services.HandleResponseError(http.StatusBadRequest, err.Error(), w)
+		return
+	}
 
 	hashed_password, _ := services.HashPassword(password_credentials.Password)
-	// if err != nil {
-	// 	// manejar error
-	// }
 
-	_, err = db.Client.Exec(`
-		UPDATE users_aseguradores
-		SET password_hash = $1,
-			reset_token = NULL,
-			reset_expires = NULL
-		WHERE user_uuid = $2`, hashed_password, user_uuid)
+	fmt.Println(password_credentials.NumeroAsesor)
+
+	if no_asesor == "000000" {
+		_, err = db.Client.Exec(`
+			UPDATE users_aseguradores
+			SET password_hash = $1,
+				reset_token = NULL,
+				reset_expires = NULL,
+				no_asesor = $2
+			WHERE user_uuid = $3`, hashed_password, password_credentials.NumeroAsesor, user_uuid)
+	} else {
+		_, err = db.Client.Exec(`
+			UPDATE users_aseguradores
+			SET password_hash = $1,
+				reset_token = NULL,
+				reset_expires = NULL
+			WHERE user_uuid = $2
+			AND no_asesor = $3`, hashed_password, user_uuid, password_credentials.NumeroAsesor)
+	}
+
+	fmt.Printf(`Se cambiara la contraseña de: %s`, user_uuid)
+
 	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusBadRequest, err.Error(), w)
 		return
 	}
+
+	services.SendCustomMail(email, "Tu constraseña ha sido actualizada")
 
 	services.HandleResponseSuccess(w)
 }
@@ -364,13 +400,14 @@ func ApiRegisterUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = db.Client.Exec(`
-		INSERT INTO users_aseguradores (email, password_hash, fk_aseguradora, verification_token, verification_expires)
-		VALUES ($1, $2, COALESCE($3, null), $4, $5)`,
+		INSERT INTO users_aseguradores (email, password_hash, fk_aseguradora, verification_token, verification_expires, no_asesor)
+		VALUES ($1, $2, COALESCE($3, null), $4, $5, $6)`,
 		asegurador_data.Email,
 		hashed_password,
 		asegurador_data.Insurance,
 		verification_token,
-		time.Now().Add(60*time.Minute))
+		time.Now().Add(60*time.Minute),
+		asegurador_data.NumeroAsesor)
 	if err != nil {
 		fmt.Println("No se ha podido realizar la inserción del usuario:", err)
 		services.HandleResponseError(http.StatusBadRequest, fmt.Sprintf(`No se ha podido realizar la inserción del usuario: %s`, err.Error()), w)
@@ -450,7 +487,7 @@ func ApiResetPasswordMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = services.SendMail(email_obtained, verification_token, "ResetPassword")
+	err = services.SendMail("oadrian38@gmail.com", verification_token, "ResetPassword")
 	if err != nil {
 		fmt.Println("No se ha podido enviar el correo de restablecimiento", err)
 		services.HandleResponseError(http.StatusInternalServerError, "No se ha podido enviar el correo de restablecimiento", w)
@@ -471,7 +508,7 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 			* }
 	*/
 	AllowOrigins(w, r)
-	w.Header().Set("Access-Control-Allow-Methods", "POST")
+	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	fmt.Println("Request from ApiVerifyAccount")
 	fmt.Printf("----------------------------------------\n")
@@ -510,7 +547,7 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Println(err.Error())
 		// services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
-		http.Redirect(w, r, "http://127.0.0.1:5173/auth/verifiedaccount?status=invalid", http.StatusSeeOther)
+		http.Redirect(w, r, "http://localhost:5173/auth/verifiedaccount?status=invalid", http.StatusSeeOther)
 		return
 	}
 

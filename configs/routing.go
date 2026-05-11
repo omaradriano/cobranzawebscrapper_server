@@ -9,6 +9,7 @@ import (
 
 	"github.com/omaradriano/cobranzawebscrapper_server/internal"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/handlers"
+	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
 )
 
 type Env struct {
@@ -16,20 +17,85 @@ type Env struct {
 }
 
 var routes = []route{
-	newRoute("GET", "/v1/cobranzasItems/([^/]+)", handlers.ApiGetCobranzasItems),
-	newRoute("POST", "/v1/cobranzaItem", handlers.ApiPostCobranzaItem),
 	// newRoute("PATCH", "/v1/cobranzaItem", handlers.ApiPatchCobranzaItem),
 	newRoute("PATCH", "/v1/cobranzaItemPayment", handlers.ApiPatchItemPayment),
-	newRoute("POST", "/v1/cobranzaAllItems", handlers.ApiPostCobranzaAllItems),
-	// newRoute("PATCH", "/v1/cobranzaFewItems", handlers.ApiPatchFewCobranzas),
 
+	/**
+	 * Subir una poliza
+	 */
+	newRoute("POST", "/v1/scrapping/poliza", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiPostPoliza)).ServeHTTP(w, r)
+	}),
+	/**
+	 * Detalles en la pantalla popup
+		* NOTA: Estos detalles son para obtener las polizas:
+		*  - Registradas
+		*  - Activas
+		*  - Por vencer
+		*  - Tienen cobertura
+		*  - Entre otras, verificar xd
+	*/
+	newRoute("GET", "/v1/scrapping/details", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetDetails)).ServeHTTP(w, r)
+	}),
+	/**
+	 * Obtener todas las polizas
+	 */
+	newRoute("GET", "/v1/scrapping/polizas/([^/]+)", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetPolizas)).ServeHTTP(w, r)
+	}),
+	/**
+	 * Subir todas las polizas
+	 */
+	newRoute("POST", "/v1/scrapping/polizas", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiPostPolizas)).ServeHTTP(w, r)
+	}),
+	/**
+	 * Obtener solo los numeros de poliza
+		* NOTA: esta parte se usa para obtener la lista de los num_poliza para poder comparar
+		* con las polizas de la extensión, para no tener que correr todo el scrapping desde cero
+	*/
+	newRoute("GET", "/v1/scrapping/polizas_ids", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetPolizasIds)).ServeHTTP(w, r)
+	}),
+	/**
+	 * Solicitar una poliza
+	 */
+	newRoute("GET", "/v1/scrapping/poliza/([^/]+)", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetPoliza)).ServeHTTP(w, r)
+	}),
+
+	// Authentication ----------------------------
+	//
+	/** Llamada a autenticación con google */
 	newRoute("POST", "/v1/auth/authenticate/google", handlers.ApiAuthenticateUserByGoogle),
+
+	/** Autenticación con credenciales manuales (usuario y contraseña) */
 	newRoute("POST", "/v1/auth/authenticate/manual", handlers.ApiAuthenticateUserByCredentials),
+
+	/** Registro de usuario (WebApp) */
 	newRoute("POST", "/v1/auth/register", handlers.ApiRegisterUser),
+
+	/** Envio de correo para reiniciar contraseña */
 	newRoute("POST", "/v1/auth/resetpasswordmail", handlers.ApiResetPasswordMail),
+
+	/** Verificación de cuenta con el token generado en /v1/auth/resetpasswordmail */
 	newRoute("GET", "/v1/auth/verifyaccount", handlers.ApiVerifyAccount),
-	newRoute("GET", "/v1/auth/checkSession", handlers.ApiCheckSession),
+
+	/** Verificación de existencia de una sesión con JWT (En este caso lo guardamos en la sesion de la extensión) */
+	newRoute("GET", "/v1/auth/checkSession", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiCheckSession)).ServeHTTP(w, r)
+	}),
+
+	/** Reinicio de contraseña (WebApp) */
 	newRoute("POST", "/v1/auth/setpassword", handlers.ApiSetPassword),
+
+	/**
+	 * Comprueba que el usuario cuente con una contraseña
+		* NOTA: este flujo verifica que el usuario tenga una contraseña en caso de tener un registro
+		* o inicio de sesión con google. En caso de no tener una contraseña se hace una redirección
+		* a la vista para establecer una (La redirección o apertura es desde la extensión)
+	*/
 	newRoute("GET", "/v1/auth/verifyPasswordExist/([^/]+)", handlers.ApiCheckPasswordExist),
 }
 

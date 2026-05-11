@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/lib/pq"
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
@@ -15,81 +14,6 @@ import (
 func GetField(r *http.Request, index int) string {
 	fields := r.Context().Value(internal.CtxKey{}).([]string)
 	return fields[index]
-}
-
-func ApiGetCobranzasItems(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
-	w.Header().Set("Access-Control-Allow-Methods", "GET")
-
-	fmt.Println("Request from ApiGetCobranzasItems")
-	fmt.Printf("----------------------------------------\n")
-
-	slug := GetField(r, 0)
-
-	filtros := map[string]interface{}{}
-
-	switch slug {
-	case "all":
-		filtros = map[string]interface{}{}
-	}
-
-	rows, err := GetPolizasDinamicas(db.Client, filtros)
-	if err != nil {
-		panic(err)
-	}
-	defer rows.Close()
-
-	var cobranzas []internal.PolizaDataItem
-	for rows.Next() {
-		var cobranza internal.PolizaDataItem
-		err := rows.Scan(&cobranza.PolizaUUID, &cobranza.Asegurado, &cobranza.Contratante, &cobranza.DiaCobro,
-			&cobranza.Estatus, &cobranza.FechaEmision, &cobranza.FormaPago, &cobranza.MedioCobro,
-			&cobranza.NumPoliza, &cobranza.Plan, &cobranza.TipoSeguro,
-			&cobranza.Direccion.Calle, &cobranza.Direccion.CodigoPostal, &cobranza.Direccion.Ciudad,
-			&cobranza.Direccion.Colonia, &cobranza.Direccion.Estado, &cobranza.SiguientePago, &cobranza.UserUUID, &cobranza.HasLog)
-		if err != nil {
-			fmt.Printf("Error con: %s\n", err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		cobranzas = append(cobranzas, cobranza)
-	}
-
-	services.HandleResponseSuccessWithData(cobranzas, w)
-}
-
-func ApiPostCobranzaItem(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
-	w.Header().Set("Access-Control-Allow-Methods", "POST")
-
-	fmt.Println("Request from ApiPostCobranzaItem")
-	fmt.Printf("----------------------------------------\n")
-
-	var CobranzaItem internal.CobranzaItem
-
-	err := json.NewDecoder(r.Body).Decode(&CobranzaItem)
-	if err != nil {
-		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
-		return
-	}
-
-	_, err = db.Client.Exec(`INSERT INTO polizas (asegurado, contratante, dia_cobro, estatus, fecha_emision, forma_pago, medio_cobro, numpoliza, plan, tipo_seguro, user_id, addr_calle, addr_codigoPostal, addr_ciudad, addr_estado, addr_colonia) VALUES ($1, $2, $3,$4, $5, $6,$7, $8, $9,$10, $11, $12, $13, $14, $15, $16)`,
-		CobranzaItem.Asegurado, CobranzaItem.Contratante, CobranzaItem.DiaCobro, CobranzaItem.Estatus, CobranzaItem.FechaEmision,
-		CobranzaItem.FormaPago, CobranzaItem.MedioCobro, CobranzaItem.NumPoliza, CobranzaItem.Plan, CobranzaItem.TipoSeguro, 1,
-		CobranzaItem.Direccion.Calle, CobranzaItem.Direccion.CodigoPostal, CobranzaItem.Direccion.Ciudad, CobranzaItem.Direccion.Estado,
-		CobranzaItem.Direccion.Colonia)
-	if err != nil {
-		pqErr := err.(*pq.Error)
-		switch pqErr.Code {
-		case "23505":
-			services.HandleResponseError(http.StatusConflict, "Ya existe un registro con el numero de poliza", w)
-		default:
-			fmt.Println(err.Error())
-			http.Error(w, fmt.Sprintf("Error no manejado por servidor: %s", err.Error()), http.StatusInternalServerError)
-		}
-		return
-	}
-	services.HandleResponseSuccess(w)
 }
 
 func ApiPatchItemPayment(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +80,7 @@ func ApiPostCobranzaAllItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Se obtiene el ID del contratante para filtrar los registros
-	contratante_uuid = CobranzaItemsReceived.Payload[0].Asegurador
+	contratante_uuid = "94e4e62c-723f-48f4-b81f-f0329fea0b82"
 
 	// Se obtienen todos los registros del contratante
 	rows, err := db.Client.Query("SELECT ua.user_uuid, ua.user_id FROM polizas p JOIN users_aseguradores ua ON ua.user_id = p.user_id WHERE ua.user_uuid = $1", contratante_uuid)

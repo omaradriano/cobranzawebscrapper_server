@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -13,7 +14,11 @@ type contextKey string
 
 var JwtSecret = `perryelortitorico1389`
 
-const UserIDKey contextKey = "user_id"
+const (
+	UserIDKey    contextKey = "user_uuid"
+	UserEmailKey contextKey = "user_email"
+	UserNoAsesor contextKey = "user_no_asesor"
+)
 
 func JWTMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +29,6 @@ func JWTMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Esperamos: "Bearer TOKEN"
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 {
 			http.Error(w, "Formato de token inválido", http.StatusUnauthorized)
@@ -34,7 +38,11 @@ func JWTMiddleware(next http.Handler) http.Handler {
 		tokenString := parts[1]
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return JwtSecret, nil
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("método de firma inesperado: %v", token.Header["alg"])
+			}
+
+			return []byte(JwtSecret), nil
 		})
 
 		if err != nil || !token.Valid {
@@ -48,7 +56,7 @@ func JWTMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Validar expiración manual (opcional pero recomendado)
+		// Verificación de expiración
 		if exp, ok := claims["exp"].(float64); ok {
 			if int64(exp) < time.Now().Unix() {
 				http.Error(w, "Token expirado", http.StatusUnauthorized)
@@ -56,10 +64,13 @@ func JWTMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		userID := claims["user_id"]
+		// Extraer claims
+		uuid, _ := claims["user_uuid"].(string)
+		email, _ := claims["email"].(string)
 
-		// Guardar en contexto
-		ctx := context.WithValue(r.Context(), UserIDKey, userID)
+		// Guardar ambos en el contexto
+		ctx := context.WithValue(r.Context(), UserIDKey, uuid)
+		ctx = context.WithValue(ctx, UserEmailKey, email)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
