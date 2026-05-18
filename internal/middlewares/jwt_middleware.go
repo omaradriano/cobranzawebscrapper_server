@@ -15,9 +15,9 @@ type contextKey string
 var JwtSecret = `perryelortitorico1389`
 
 const (
-	UserIDKey    contextKey = "user_uuid"
-	UserEmailKey contextKey = "user_email"
-	UserNoAsesor contextKey = "user_no_asesor"
+	UserIDKey    contextKey = "agente_uuid"
+	UserEmailKey contextKey = "email"
+	UserNoAgente contextKey = "no_agente"
 )
 
 func JWTMiddleware(next http.Handler) http.Handler {
@@ -65,12 +65,14 @@ func JWTMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Extraer claims
-		uuid, _ := claims["user_uuid"].(string)
+		uuid, _ := claims["agente_uuid"].(string)
 		email, _ := claims["email"].(string)
+		agente, _ := claims["no_agente"].(string)
 
 		// Guardar ambos en el contexto
 		ctx := context.WithValue(r.Context(), UserIDKey, uuid)
 		ctx = context.WithValue(ctx, UserEmailKey, email)
+		ctx = context.WithValue(ctx, UserNoAgente, agente)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

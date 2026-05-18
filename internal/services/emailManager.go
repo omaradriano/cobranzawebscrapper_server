@@ -34,7 +34,7 @@ func SendMail(destination, confimation_token, email_type string) error {
 	params := &resend.SendEmailRequest{
 		From: "Acme <onboarding@resend.dev>",
 		To:   []string{destination},
-		Html: fmt.Sprintf(`<a href="http://%s/auth/%s?token=%s">%s c:</a>`,
+		Html: fmt.Sprintf(`<a href="http://%s/auth/%s?token=%s&setpasswordmode=resetpassword">%s c:</a>`,
 			destination_router, email_type_value, confimation_token, displayMessage),
 		Subject: "Confirmación de cuenta para polizas-tracker",
 		// Cc:      []string{"cc@example.com"},

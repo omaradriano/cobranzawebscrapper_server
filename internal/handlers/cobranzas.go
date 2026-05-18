@@ -83,7 +83,7 @@ func ApiPostCobranzaAllItems(w http.ResponseWriter, r *http.Request) {
 	contratante_uuid = "94e4e62c-723f-48f4-b81f-f0329fea0b82"
 
 	// Se obtienen todos los registros del contratante
-	rows, err := db.Client.Query("SELECT ua.user_uuid, ua.user_id FROM polizas p JOIN users_aseguradores ua ON ua.user_id = p.user_id WHERE ua.user_uuid = $1", contratante_uuid)
+	rows, err := db.Client.Query("SELECT ua.user_uuid, ua.user_id FROM polizas p JOIN agentes ua ON ua.user_id = p.user_id WHERE ua.user_uuid = $1", contratante_uuid)
 	if err != nil {
 		services.HandleResponseError(http.StatusInternalServerError, "Ha ocurrido un error", w)
 		return
@@ -141,7 +141,7 @@ func ApiPostCobranzaAllItems(w http.ResponseWriter, r *http.Request) {
 
 		// Agregamos los valores al slice de interfaces (sin comillas manuales)
 		args = append(args,
-			item.Asegurado, item.Contratante, item.DiaCobro, item.Estatus,
+			item.DiaCobro, item.Estatus,
 			item.FechaEmision, item.FormaPago, item.MedioCobro, item.NumPoliza,
 			item.Plan, item.TipoSeguro, contratante_id,
 			item.Direccion.Calle, item.Direccion.CodigoPostal,

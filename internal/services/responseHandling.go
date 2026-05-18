@@ -65,12 +65,13 @@ func HandleResponseSuccess(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(customSuccess)
 }
 
-func GenerateJWT(user_uuid, email string) (string, error) {
+func GenerateJWT(user_uuid, email, no_agente string) (string, error) {
 	claims := jwt.MapClaims{
-		"user_uuid": user_uuid,
-		"exp":       time.Now().Add(time.Hour * 24).Unix(),
-		"email":     email,
-		"role":      "testRole",
+		"agente_uuid": user_uuid,
+		"exp":         time.Now().Add(time.Hour * 24).Unix(),
+		"email":       email,
+		"role":        "testRole",
+		"no_agente":   no_agente,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -96,13 +97,14 @@ func GenerateSecureToken() (string, error) {
 func ValidateResetToken(token string) (string, string, error) {
 	var user_uuid string
 	var email string
+	var no_agente string
 	var expires time.Time
 
 	err := db.Client.QueryRow(`
-		SELECT user_uuid, email, reset_expires
-		FROM users_aseguradores
+		SELECT agente_uuid, email, reset_expires, no_agente
+		FROM agentes
 		WHERE reset_token = $1
-	`, token).Scan(&user_uuid, &email, &expires)
+	`, token).Scan(&user_uuid, &email, &expires, &no_agente)
 	if err != nil {
 		fmt.Println(err.Error())
 		return "", "", fmt.Errorf("token inválido")
@@ -120,8 +122,8 @@ func ValidateConfirmationToken(token string) (string, error) {
 	var expires time.Time
 
 	err := db.Client.QueryRow(`
-		SELECT user_uuid, verification_expires
-		FROM users_aseguradores
+		SELECT agente_uuid, verification_expires
+		FROM agentes
 		WHERE verification_token = $1
 	`, token).Scan(&user_uuid, &expires)
 	if err != nil {

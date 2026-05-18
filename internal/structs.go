@@ -12,17 +12,29 @@ type CtxKey struct{}
 DTO para subir datos a la base de datos
 */
 type PostItem_Poliza struct {
-	Asegurado    string  `json:"asegurado"`
-	Contratante  string  `json:"contratante"`
-	DiaCobro     int8    `json:"dia_cobro"`
-	Direccion    Address `json:"direccion"`
-	Estatus      string  `json:"estatus"`
-	FechaEmision string  `json:"fecha_emision"`
-	FormaPago    string  `json:"forma_pago"`
-	MedioCobro   string  `json:"medio_cobro"`
-	NumPoliza    string  `json:"num_poliza"`
-	Plan         string  `json:"plan"`
-	TipoSeguro   string  `json:"tipo_seguro"`
+	Asegurado     string      `json:"asegurado"`
+	Contratante   string      `json:"contratante"`
+	DiaCobro      int8        `json:"dia_cobro"`
+	Direccion     Address     `json:"direccion"`
+	Estatus       string      `json:"estatus"`
+	FechaEmision  string      `json:"fecha_emision"`
+	FormaPago     string      `json:"forma_pago"`
+	MedioCobro    string      `json:"medio_cobro"`
+	NumPoliza     string      `json:"num_poliza"`
+	Plan          string      `json:"plan"`
+	TipoSeguro    string      `json:"tipo_seguro"`
+	Asegurados    []Asegurado `json:"asegurados"`
+	Telefono      string      `json:"telefono"`
+	SumaAsegurada string      `json:"suma_asegurada"`
+	Pais          string      `json:"pais"`
+	Email         string      `json:"email"`
+	Moneda        string      `json:"moneda"`
+}
+
+type Asegurado struct {
+	Nombre      string `json:"nombre"`
+	IsPrincipal bool   `json:"is_principal"`
+	Cumpleanos  string `json:"birthday"`
 }
 
 type Address struct {
@@ -37,22 +49,25 @@ type Address struct {
 DTO para obtener datos de la base de datos
 */
 type GetItem_Poliza struct {
-	Asegurado    string `json:"asegurado"`
-	Contratante  string `json:"contratante"`
-	DiaCobro     int8   `json:"diaCobro"`
-	Estatus      string `json:"estatus"`
-	FechaEmision string `json:"fecha_emision"`
-	FormaPago    string `json:"forma_pago"`
-	MedioCobro   string `json:"medio_cobro"`
-	NumPoliza    string `json:"num_poliza"`
-	Plan         string `json:"plan"`
-	TipoSeguro   string `json:"tipo_seguro"`
+	DiaCobro     int8        `json:"diaCobro"`
+	Estatus      string      `json:"estatus"`
+	FechaEmision string      `json:"fecha_emision"`
+	FormaPago    string      `json:"forma_pago"`
+	MedioCobro   string      `json:"medio_cobro"`
+	NumPoliza    string      `json:"num_poliza"`
+	Plan         string      `json:"plan"`
+	TipoSeguro   string      `json:"tipo_seguro"`
+	Moneda       string      `json:"moneda"`
+	Pais         string      `json:"pais"`
+	Asegurados   []Asegurado `json:"asegurados"`
+	Email        string      `json:"email"`
+	Telefono     string      `json:"telefono"`
 
 	Direccion Address `json:"direccion"`
 
 	SiguientePago string `json:"next_payment"`
 	PolizaUUID    string `json:"poliza_uuid"`
-	UserUUID      string `json:"user_uuid"`
+	AgenteUUID    string `json:"agente_uuid"`
 }
 
 type HttpError struct {
@@ -105,7 +120,9 @@ type Google_Token struct {
 }
 
 type JWTClaims struct {
-	Email string `json:"email"`
+	Email      string `json:"email"`
+	AgenteUUID string `json:"agente_uuid"`
+	NoAgente   string `json:"no_agente"`
 }
 
 type Google_User_Response struct {
@@ -127,7 +144,8 @@ type Verify_Password_Response struct {
 type SetPasswordCredentials struct {
 	ResetToken   string `json:"resettoken"`
 	Password     string `json:"password"`
-	NumeroAsesor string `json:"no_asesor"`
+	NumeroAsesor string `json:"no_asesor,omitempty"`
+	Aseguradora  string `json:"insurance,omitempty"`
 }
 
 type UserAseguradorRegister struct {

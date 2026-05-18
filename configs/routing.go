@@ -88,7 +88,7 @@ var routes = []route{
 	}),
 
 	/** Reinicio de contraseña (WebApp) */
-	newRoute("POST", "/v1/auth/setpassword", handlers.ApiSetPassword),
+	newRoute("POST", "/v1/auth/setpassword", handlers.ApiSetCredentials),
 
 	/**
 	 * Comprueba que el usuario cuente con una contraseña

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
@@ -31,24 +32,32 @@ func ApiCheckPasswordExist(w http.ResponseWriter, r *http.Request) {
 	 */
 	var verifiedEmailRes internal.Verify_Password_Response
 	email := GetField(r, 0)
-	rows, err := db.Client.Query(`SELECT password_hash FROM users_aseguradores WHERE email = $1`, email)
-	if err != nil {
-		services.HandleResponseError(http.StatusInternalServerError, "No se ha podido ejecutar el query para obtener si existe pass", w)
-		return
-	}
-	defer rows.Close()
 
 	found := false
-	var hasPassword string
+	// var hasPassword string
+	var hasPassword sql.NullString
 
-	for rows.Next() {
-		if err := rows.Scan(&hasPassword); err != nil {
-			fmt.Println(err.Error())
-			// services.HandleResponseError(http.StatusInternalServerError, "Error al leer datos", w)
-			// return
-		} else {
-			found = true
+	err := db.Client.QueryRow(`
+		SELECT password_hash
+		FROM agentes
+		WHERE email = $1`, email).Scan(&hasPassword)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			fmt.Println("Usuario no encontrado")
+			return
 		}
+
+		services.HandleResponseError(
+			http.StatusInternalServerError,
+			"Error al consultar password",
+			w,
+		)
+		return
+	}
+
+	if hasPassword.Valid {
+		fmt.Println("Tiene password:", hasPassword.String)
+		found = true
 	}
 
 	/**
@@ -62,7 +71,7 @@ func ApiCheckPasswordExist(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		token_expires := time.Now().Add(30 * time.Minute)
-		db.Client.Exec(`UPDATE users_aseguradores SET reset_token = $1, reset_expires = $2 WHERE email = $3`, verifiedEmailRes.PasswordToken, token_expires, email)
+		db.Client.Exec(`UPDATE agentes SET reset_token = $1, reset_expires = $2 WHERE email = $3`, verifiedEmailRes.PasswordToken, token_expires, email)
 		services.HandleResponseSuccessWithData(verifiedEmailRes, w)
 		return
 	}
@@ -131,7 +140,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 	 */
 
 	rows, err := db.Client.Query(
-		`SELECT email, user_uuid FROM users_aseguradores WHERE email = $1`,
+		`SELECT email, agente_uuid, no_agente FROM agentes WHERE email = $1`,
 		google_user_response.Email,
 	)
 	if err != nil {
@@ -144,8 +153,9 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 	found := false
 
 	var email string
+	var no_agente string
 	for rows.Next() {
-		if err := rows.Scan(&email, &user_uuid); err != nil {
+		if err := rows.Scan(&email, &user_uuid, &no_agente); err != nil {
 			fmt.Println(err.Error())
 			services.HandleResponseError(http.StatusInternalServerError, "Error al leer datos", w)
 			return
@@ -160,7 +170,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 
 	var ServerResponse internal.Server_Response_With_Token
 
-	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, email)
+	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, email, no_agente)
 	if err != nil {
 		services.HandleResponseError(http.StatusInternalServerError, "Error al obtener jwt token", w)
 	}
@@ -173,7 +183,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 		 * El usuario no existe por lo que hay que proceder a registro del mismo
 		 */
 		fmt.Println("No se encontró usuario, hay que crear uno nuevo")
-		createUserQuery := `INSERT INTO users_aseguradores (email, is_verified, no_asesor) VALUES ($1, true, '000000')`
+		createUserQuery := `INSERT INTO agentes (email, is_verified, no_agente) VALUES ($1, true, '000000')`
 		_, err := db.Client.Exec(createUserQuery, google_user_response.Email)
 		if err != nil {
 			fmt.Println("Error al insertar un nuevo usuario con validacion google:", err)
@@ -204,6 +214,7 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 	var ServerResponse internal.Server_Response_With_Token
 	var user_uuid string
 	var is_account_verified bool
+	var no_agente string
 	err := json.NewDecoder(r.Body).Decode(&login_credentials)
 	if err != nil {
 		fmt.Println("Error decoding JSON on ApiAuthenticateUserByCredentials:", err)
@@ -212,12 +223,11 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = db.Client.QueryRow(`
-		SELECT email, password_hash, user_uuid, is_verified
-		FROM users_aseguradores
+		SELECT email, password_hash, agente_uuid, is_verified, no_agente
+		FROM agentes
 		WHERE email = $1
 		`, login_credentials.Email).
-		Scan(&db_credentials.Email, &db_credentials.Password, &user_uuid, &is_account_verified)
-	fmt.Println(db_credentials.Email)
+		Scan(&db_credentials.Email, &db_credentials.Password, &user_uuid, &is_account_verified, &no_agente)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			fmt.Println(err.Error())
@@ -235,20 +245,15 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hashedPassword, _ := services.HashPassword(login_credentials.Password)
-
-	fmt.Println(hashedPassword)
-	fmt.Println(db_credentials.Password)
-	// fmt.Println(db_credentials.Password)
 	areCredentialsValid := services.CheckPassword(db_credentials.Password, login_credentials.Password)
 
 	if !areCredentialsValid {
-		// fmt.Println(err.Error())
+		fmt.Println("Invalidas")
 		services.HandleResponseError(http.StatusUnauthorized, "Credenciales incorrectas", w)
 		return
 	}
 
-	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, db_credentials.Email)
+	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, db_credentials.Email, no_agente)
 	// ServerResponse.Email = db_credentials.Email
 
 	services.HandleResponseSuccessWithData(ServerResponse, w)
@@ -265,39 +270,44 @@ func ApiCheckSession(w http.ResponseWriter, r *http.Request) {
 	// Nota: Usa las llaves que definiste en tu middleware (ej. configs.UserIDKey)
 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
 	userEmail, _ := r.Context().Value(middlewares.UserEmailKey).(string)
+	noAgente, _ := r.Context().Value(middlewares.UserNoAgente).(string)
 
 	// Logging para depuración en tu servidor
 	fmt.Printf("--- Sesión Verificada ---\n")
 	fmt.Printf("User UUID: %s\n", userUUID)
 	fmt.Printf("Email:     %s\n", userEmail)
+	fmt.Printf("NoAgente:     %s\n", noAgente)
 	fmt.Printf("-------------------------\n")
 
+	session_claims.AgenteUUID = userUUID
 	session_claims.Email = userEmail
+	session_claims.NoAgente = noAgente
 
 	// 3. Si llegamos aquí, el middleware ya validó el JWT.
 	// Simplemente respondemos éxito.
 	services.HandleResponseSuccessWithData(session_claims, w)
 }
 
-func ApiSetPassword(w http.ResponseWriter, r *http.Request) {
+func ApiSetCredentials(w http.ResponseWriter, r *http.Request) {
 	/*
 		 * http://127.0.0.1:3006/v1/auth/setpassword?token=1234abcd
 			* body:
 			* {
 			* 	"password":string,
-			* 	"no_asesor":string
 			* }
 	*/
 	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
-	fmt.Println("Request from ApiSetPassword")
+	fmt.Println("Request from ApiSetCredentials")
 	fmt.Printf("----------------------------------------\n")
 
 	var password_credentials internal.SetPasswordCredentials
-	var no_asesor string
+	var no_agente string
 
 	password_credentials.ResetToken = r.URL.Query().Get("token")
+
+	fmt.Println(password_credentials.ResetToken)
 
 	err := json.NewDecoder(r.Body).Decode(&password_credentials)
 	if err != nil {
@@ -305,9 +315,6 @@ func ApiSetPassword(w http.ResponseWriter, r *http.Request) {
 		services.HandleResponseError(http.StatusBadRequest, "No se ha podido recuperar formato json de ApiSetPassword", w)
 		return
 	}
-
-	fmt.Println(password_credentials.NumeroAsesor)
-
 	user_uuid, email, err := services.ValidateResetToken(password_credentials.ResetToken)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
@@ -315,8 +322,12 @@ func ApiSetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.Client.QueryRow(`SELECT no_asesor FROM users_aseguradores WHERE user_uuid = $1`, user_uuid).
-		Scan(&no_asesor)
+	fmt.Println(password_credentials.Aseguradora)
+	fmt.Println(password_credentials.NumeroAsesor)
+	fmt.Println(password_credentials.Password)
+
+	err = db.Client.QueryRow(`SELECT no_agente FROM agentes WHERE agente_uuid = $1`, user_uuid).
+		Scan(&no_agente)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusBadRequest, err.Error(), w)
@@ -327,27 +338,39 @@ func ApiSetPassword(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println(password_credentials.NumeroAsesor)
 
-	if no_asesor == "000000" {
+	if no_agente == "000000" {
 		_, err = db.Client.Exec(`
-			UPDATE users_aseguradores
+			UPDATE agentes
 			SET password_hash = $1,
 				reset_token = NULL,
 				reset_expires = NULL,
-				no_asesor = $2
-			WHERE user_uuid = $3`, hashed_password, password_credentials.NumeroAsesor, user_uuid)
+				no_agente = $2,
+				aseguradora_id = $3
+			WHERE agente_uuid = $4`, hashed_password, password_credentials.NumeroAsesor, password_credentials.Aseguradora, user_uuid)
 	} else {
 		_, err = db.Client.Exec(`
-			UPDATE users_aseguradores
+			UPDATE agentes
 			SET password_hash = $1,
 				reset_token = NULL,
 				reset_expires = NULL
-			WHERE user_uuid = $2
-			AND no_asesor = $3`, hashed_password, user_uuid, password_credentials.NumeroAsesor)
+			WHERE agente_uuid = $2`, hashed_password, user_uuid)
 	}
 
 	fmt.Printf(`Se cambiara la contraseña de: %s`, user_uuid)
 
 	if err != nil {
+		// 1. Intentamos convertir el error genérico al tipo de error de pq
+		if pgErr, ok := err.(*pq.Error); ok {
+			// 2. Validamos si el código de error es el 23505 (Unique Violation)
+			if pgErr.Code == "23505" {
+				services.NewLogger().ErrorMessage("Error 23505: El número de asesor ya está registrado por otro usuario.")
+
+				// Devolvemos un error amigable al cliente (Conflict 409 es el ideal aquí)
+				services.HandleResponseError(http.StatusConflict, "El número de asesor ya se encuentra en uso por otra cuenta.", w)
+				return
+			}
+		}
+
 		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusBadRequest, err.Error(), w)
 		return
@@ -400,8 +423,8 @@ func ApiRegisterUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = db.Client.Exec(`
-		INSERT INTO users_aseguradores (email, password_hash, fk_aseguradora, verification_token, verification_expires, no_asesor)
-		VALUES ($1, $2, COALESCE($3, null), $4, $5, $6)`,
+		INSERT INTO agentes (email, password_hash, aseguradora_id, verification_token, verification_expires, no_agente)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
 		asegurador_data.Email,
 		hashed_password,
 		asegurador_data.Insurance,
@@ -454,7 +477,7 @@ func ApiResetPasswordMail(w http.ResponseWriter, r *http.Request) {
 
 	err = db.Client.QueryRow(`
 		SELECT email
-		FROM users_aseguradores
+		FROM agentes
 		WHERE email = $1
 		`, reset_pass_credentials.Email).
 		Scan(&email_obtained)
@@ -478,7 +501,7 @@ func ApiResetPasswordMail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = db.Client.Exec(`
-		UPDATE users_aseguradores
+		UPDATE agentes
 		SET reset_token = $1, reset_expires = $2
 		WHERE email = $3`, verification_token, time.Now().Add(60*time.Minute), email_obtained)
 	if err != nil {
@@ -518,7 +541,7 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Iniciando validacion del token para confirmar la cuenta")
 
-	rows, err := db.Client.Query(`SELECT is_verified FROM users_aseguradores WHERE verification_token = $1`, token)
+	rows, err := db.Client.Query(`SELECT is_verified FROM agentes WHERE verification_token = $1`, token)
 	if err != nil {
 		fmt.Println("No se han podido recuperar datos de verification_token", err)
 		services.HandleResponseError(http.StatusBadRequest, "No se han podido recuperar datos de verification_token", w)
@@ -552,11 +575,11 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = db.Client.Exec(`
-		UPDATE users_aseguradores
+		UPDATE agentes
 		SET is_verified = true,
 			verification_expires = NULL,
 			verification_token = NULL
-		WHERE user_uuid = $1`, user_uuid)
+		WHERE agente_uuid = $1`, user_uuid)
 	if err != nil {
 		fmt.Println(err.Error())
 		services.HandleResponseError(http.StatusInternalServerError, fmt.Sprintf("No se ha podido verificar la cuenta: %s", err.Error()), w)
@@ -565,7 +588,7 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Se ha verificado la cuenta")
 
-	http.Redirect(w, r, "http://127.0.0.1:5173/auth/verifiedaccount?status=success", http.StatusSeeOther)
+	http.Redirect(w, r, "http://localhost:5173/auth/verifiedaccount?status=success", http.StatusSeeOther)
 	return
 }
 

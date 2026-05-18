@@ -30,7 +30,7 @@ func ApiGetPolizasCountByUser(w http.ResponseWriter, r *http.Request) {
 
 	user_uuid := r.URL.Query().Get("uuid")
 
-	err := db.Client.QueryRow(`SELECT COUNT(*) FROM polizas WHERE user_uuid = $1`, user_uuid).Scan(&polizas_count)
+	err := db.Client.QueryRow(`SELECT COUNT(*) FROM polizas WHERE agente_uuid = $1`, user_uuid).Scan(&polizas_count)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusBadRequest, fmt.Sprintf(`No se ha podido realizar la inserción del usuario: %s`, err.Error()), w)
@@ -50,49 +50,41 @@ func ApiPostPolizas(w http.ResponseWriter, r *http.Request) {
 
 	services.NewLogger().OriginAdvice("ApiPostPolizas")
 
-	// Items recibidos desde el payload de la request
 	var CobranzaItemsReceived internal.PostItems_Poliza
-	// Items finales para subir
 	var CobranzaItemsToUpload internal.PostItems_Poliza
-	// Contratante enlazado para filtrar los registros
-	contratante_uuid, _ := r.Context().Value(middlewares.UserIDKey).(string)
+	agente_uuid, _ := r.Context().Value(middlewares.UserIDKey).(string)
 
-	// fmt.Println(contratante_uuid)
+	var agente_id int
+	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, agente_uuid).Scan(&agente_id)
+	if err != nil {
+		fmt.Println("Error buscando agente:", err)
+		services.HandleResponseError(http.StatusBadRequest, "Error obteniendo información del agente", w)
+		return
+	}
 
-	err := json.NewDecoder(r.Body).Decode(&CobranzaItemsReceived)
+	err = json.NewDecoder(r.Body).Decode(&CobranzaItemsReceived)
 	if err != nil {
 		fmt.Println("Error decoding JSON:", err)
 		services.HandleResponseError(http.StatusBadRequest, "Error decoding JSON", w)
 		return
 	}
 
-	// /*
-	// 	 *
-	// 		*
-	// 		* Validacion para verificar que vengan datos en la peticion
-	// 		*
-	// */
 	if len(CobranzaItemsReceived.Payload) == 0 {
 		services.HandleResponseError(http.StatusBadRequest, "No se ha recibido información", w)
 		return
 	}
 
-	// // Se obtienen todos los registros del contratante
+	// Se obtienen todos los registros del contratante para evitar duplicados
 	rows, err := db.Client.Query(`
-		SELECT numpoliza
+		SELECT p.numpoliza
 		FROM polizas p
-		WHERE p.user_uuid = $1`, contratante_uuid)
+		JOIN agentes a ON p.agente_id = a.agente_id
+		WHERE a.agente_uuid = $1`, agente_uuid)
 	if err != nil {
 		services.HandleResponseError(http.StatusInternalServerError, "Ha ocurrido un error", w)
 		return
 	}
 
-	// /*
-	// 	 *
-	// 		*
-	// 		* Validacion en caso de que los registros que se quieren insertar ya existen en la DB
-	// 		*
-	// */
 	existing_rows := make(map[string]bool)
 	for rows.Next() {
 		var numPoliza string
@@ -103,14 +95,13 @@ func ApiPostPolizas(w http.ResponseWriter, r *http.Request) {
 		}
 		existing_rows[strings.ToLower(numPoliza)] = true
 	}
+	rows.Close() // Cerramos explícitamente aquí para liberar la conexión
 
 	for _, receivedItem := range CobranzaItemsReceived.Payload {
 		if !existing_rows[strings.ToLower(receivedItem.NumPoliza)] {
 			CobranzaItemsToUpload.Payload = append(CobranzaItemsToUpload.Payload, receivedItem)
-			fmt.Println(receivedItem)
 		}
 	}
-	defer rows.Close()
 
 	if len(CobranzaItemsToUpload.Payload) == 0 {
 		services.NewLogger().ErrorMessage("Todos los registros a ingresar ya existen, verifique la petición")
@@ -118,13 +109,20 @@ func ApiPostPolizas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /*
-	// 	 *
-	// 		*
-	// 		* Armado de INSERT dinámico
-	// 		*
-	// */
-	const colsPerItem = 16
+	// =========================================================================
+	// INICIO DE LA TRANSACCIÓN (Para asegurar consistencia entre ambas tablas)
+	// =========================================================================
+	tx, err := db.Client.Begin()
+	if err != nil {
+		services.HandleResponseError(http.StatusInternalServerError, "Error al iniciar transacción", w)
+		return
+	}
+	defer tx.Rollback() // Red de seguridad: cancela todo si la función sale antes del Commit
+
+	/*
+	 * Armado de INSERT dinámico para polizas añadiendo RETURNING
+	 */
+	const colsPerItem = 19
 	var placeholders []string
 	var args []interface{}
 
@@ -132,54 +130,116 @@ func ApiPostPolizas(w http.ResponseWriter, r *http.Request) {
 		base := i * colsPerItem
 
 		placeholders = append(placeholders, fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8,
-			base+9, base+10, base+11, base+12, base+13, base+14, base+15, base+16,
+			base+9, base+10, base+11, base+12, base+13, base+14, base+15,
+			base+16, base+17, base+18, base+19,
 		))
 
-		// 	// Agregamos los valores al slice de interfaces (sin comillas manuales)
 		args = append(args,
-			item.Asegurado, item.Contratante, item.DiaCobro, item.Estatus,
-			item.FechaEmision, item.FormaPago, item.MedioCobro, item.NumPoliza,
-			item.Plan, item.TipoSeguro,
-			item.Direccion.Calle, item.Direccion.CodigoPostal,
-			item.Direccion.Ciudad, item.Direccion.Estado, item.Direccion.Colonia, contratante_uuid,
+			item.DiaCobro, item.Estatus, item.FechaEmision, item.FormaPago, item.MedioCobro,
+			item.NumPoliza, item.Plan, item.TipoSeguro, item.Direccion.Calle, item.Direccion.CodigoPostal,
+			item.Direccion.Ciudad, item.Direccion.Colonia, item.Direccion.Estado, item.Moneda,
+			item.Telefono, item.SumaAsegurada, item.Email, item.Pais, agente_id,
 		)
 	}
 
-	// // 2. Construimos el query final
+	// Agregamos RETURNING al query de pólizas para obtener los IDs que cree la base de datos
 	queryStart := `INSERT INTO polizas (
-	    asegurado, contratante, dia_cobro, estatus, fecha_emision,
-	    forma_pago, medio_cobro, numpoliza, plan, tipo_seguro,
-	    addr_calle, addr_codigopostal, addr_ciudad,
-	    addr_estado, addr_colonia, user_uuid
-	   ) VALUES `
+		dia_cobro, estatus, fecha_emision, forma_pago, medio_cobro, numpoliza, plan,
+		tipo_seguro, addr_calle, addr_codigopostal, addr_ciudad, addr_colonia,
+		addr_estado, moneda, telefono, suma_asegurada, email, pais, agente_id
+	) VALUES `
+	finalQuery := queryStart + strings.Join(placeholders, ",") + " RETURNING poliza_id, numpoliza"
 
-	finalQuery := queryStart + strings.Join(placeholders, ",")
-
-	res, err := db.Client.Exec(finalQuery, args...)
+	// Cambiamos Exec por Query para leer lo que arroja el RETURNING
+	polizasRows, err := tx.Query(finalQuery, args...)
 	if err != nil {
-		fmt.Println("Error en bulk insert:", err)
-		services.HandleResponseError(http.StatusConflict, "No se ha podido realizar la inserción", w)
+		fmt.Println("Error en bulk insert de polizas:", err)
+		services.HandleResponseError(http.StatusConflict, "No se ha podido realizar la inserción de pólizas", w)
 		return
 	}
 
-	// // 2. Extraemos la cantidad de filas afectadas
-	count, err := res.RowsAffected()
-	if err != nil {
-		// Es raro que falle aquí, pero es buena práctica validarlo
-		fmt.Println("Error al obtener filas afectadas:", err)
-		services.HandleResponseError(http.StatusBadRequest, err.Error(), w)
+	// Mapeamos los IDs autogenerados indexándolos por el número de póliza texto
+	polizasMap := make(map[string]int64)
+	var totalPolizasInsertadas int64
+
+	for polizasRows.Next() {
+		var id int64
+		var num string
+		if err := polizasRows.Scan(&id, &num); err != nil {
+			polizasRows.Close()
+			services.HandleResponseError(http.StatusInternalServerError, "Error al procesar identificadores de pólizas", w)
+			return
+		}
+		polizasMap[strings.ToLower(num)] = id
+		totalPolizasInsertadas++
+	}
+	polizasRows.Close() // Cerramos este set de resultados para proceder con el siguiente
+
+	// =========================================================================
+	// PASO 2: BULK INSERT DE ASEGURADOS UTILIZANDO EL MAPA DE IDs
+	// =========================================================================
+	var nombresAsegurados []string
+	var cumpleanosAsegurados []string
+	var principalesAsegurados []bool
+	var polizasIdsAsegurados []int64
+
+	// Recorremos los datos que sabemos que se intentaron subir
+	for _, item := range CobranzaItemsToUpload.Payload {
+		polizaID, existe := polizasMap[strings.ToLower(item.NumPoliza)]
+		if !existe {
+			continue // Protección por si no se generó el ID (no debería pasar)
+		}
+
+		for _, asegurado := range item.Asegurados {
+			nombresAsegurados = append(nombresAsegurados, asegurado.Nombre)
+			cumpleanosAsegurados = append(cumpleanosAsegurados, asegurado.Cumpleanos)
+			principalesAsegurados = append(principalesAsegurados, asegurado.IsPrincipal)
+			polizasIdsAsegurados = append(polizasIdsAsegurados, polizaID) // Inyectamos el ID relacional real
+		}
 	}
 
-	message_obj := make(map[string]interface{})
-	// // 3. Validamos o logueamos el resultado
-	if count == 0 {
-		fmt.Println("Cuidado: El insert terminó sin errores pero no se insertó ninguna fila.")
-	} else {
-		message_obj["message"] = fmt.Sprintf("¡Éxito! Se insertaron %d registros correctamente.\n", count)
-		fmt.Printf("¡Éxito! Se insertaron %d registros correctamente.\n", count)
+	// Si las pólizas tenían asegurados en su payload, los metemos todos de un solo golpe masivo
+	if len(nombresAsegurados) > 0 {
+		// CORRECCIÓN: Casteamos explícitamente cada parámetro individual ($1::text[], $2::text[], etc.)
+		// antes de pasárselo a UNNEST para que el driver nativo no se confunda con literales vacíos.
+		queryAsegurados := `
+				INSERT INTO asegurados (nombre_completo, birthday, is_principal, poliza_id)
+				SELECT
+					temp.nombre,
+					NULLIF(temp.cumple, '')::timestamptz,
+					temp.principal,
+					temp.pol_id
+				FROM UNNEST($1::text[], $2::text[], $3::boolean[], $4::bigint[])
+				AS temp(nombre, cumple, principal, pol_id);`
+
+		_, err = tx.Exec(queryAsegurados,
+			pq.Array(nombresAsegurados),
+			pq.Array(cumpleanosAsegurados),
+			pq.Array(principalesAsegurados),
+			pq.Array(polizasIdsAsegurados),
+		)
+		if err != nil {
+			fmt.Println("Error en bulk insert de asegurados:", err)
+			services.HandleResponseError(http.StatusConflict, "No se ha podido realizar la inserción de asegurados", w)
+			return
+		}
 	}
+
+	// =========================================================================
+	// COMMIT: Si todo salió bien hasta aquí, guardamos permanentemente en la DB
+	// =========================================================================
+	if err := tx.Commit(); err != nil {
+		fmt.Println("Error al confirmar transacción:", err)
+		services.HandleResponseError(http.StatusInternalServerError, "Error al guardar los datos", w)
+		return
+	}
+
+	// Respuesta al cliente
+	message_obj := make(map[string]interface{})
+	message_obj["message"] = fmt.Sprintf("¡Éxito! Se insertaron %d pólizas con sus respectivos asegurados correctamente.\n", totalPolizasInsertadas)
+	fmt.Printf("¡Éxito! Se insertaron %d registros correctamente.\n", totalPolizasInsertadas)
 
 	services.HandleResponseSuccessWithData(message_obj, w)
 }
@@ -194,10 +254,11 @@ func ApiPostPoliza(w http.ResponseWriter, r *http.Request) {
 
 	services.NewLogger().OriginAdvice("ApiPostPoliza")
 
-	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
+	agente_uuid, _ := r.Context().Value(middlewares.UserIDKey).(string)
 
 	var CobranzaItem internal.PostItem_Poliza
-	var PolizaItemReturn internal.GetItem_Poliza
+	var agente_id int
+	var poliza_id int
 
 	err := json.NewDecoder(r.Body).Decode(&CobranzaItem)
 	if err != nil {
@@ -206,59 +267,64 @@ func ApiPostPoliza(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = db.Client.Exec(`
-		INSERT INTO polizas (asegurado, contratante, dia_cobro, estatus, fecha_emision,
-							forma_pago, medio_cobro, numpoliza, plan, tipo_seguro, addr_calle, addr_codigoPostal,
-							addr_ciudad, addr_estado, addr_colonia, user_uuid) VALUES ($1, $2, $3,$4, $5, $6,$7, $8, $9,$10, $11, $12, $13, $14, $15, $16)`,
-		CobranzaItem.Asegurado, CobranzaItem.Contratante, CobranzaItem.DiaCobro, CobranzaItem.Estatus, CobranzaItem.FechaEmision,
-		CobranzaItem.FormaPago, CobranzaItem.MedioCobro, CobranzaItem.NumPoliza, CobranzaItem.Plan, CobranzaItem.TipoSeguro,
-		CobranzaItem.Direccion.Calle, CobranzaItem.Direccion.CodigoPostal, CobranzaItem.Direccion.Ciudad, CobranzaItem.Direccion.Estado,
-		CobranzaItem.Direccion.Colonia, userUUID)
+	err = db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, agente_uuid).Scan(&agente_id)
 	if err != nil {
-		// Comprobación segura de tipo de error
+		if err == sql.ErrNoRows {
+			// CASO: No hay registros
+			fmt.Println("El agente no existe en la base de datos")
+			services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+		}
+
+		// CASO: Otro tipo de error (conexión, sintaxis, etc.)
+		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+	}
+
+	_, err = db.Client.Exec(`
+		INSERT INTO polizas (dia_cobro, estatus, fecha_emision, forma_pago, medio_cobro, numpoliza, plan,
+			tipo_seguro, addr_calle, addr_codigopostal, addr_ciudad, addr_colonia,
+			addr_estado, moneda, telefono, suma_asegurada, email, pais, agente_id) VALUES ($1, $2, $3,$4, $5, $6,$7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+		CobranzaItem.DiaCobro, CobranzaItem.Estatus, CobranzaItem.FechaEmision, CobranzaItem.FormaPago, CobranzaItem.MedioCobro,
+		CobranzaItem.NumPoliza, CobranzaItem.Plan, CobranzaItem.TipoSeguro, CobranzaItem.Direccion.Calle, CobranzaItem.Direccion.CodigoPostal,
+		CobranzaItem.Direccion.Ciudad, CobranzaItem.Direccion.Colonia, CobranzaItem.Direccion.Estado, CobranzaItem.Moneda,
+		CobranzaItem.Telefono, CobranzaItem.SumaAsegurada, CobranzaItem.Email, CobranzaItem.Pais, agente_id)
+	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok {
 			switch pqErr.Code {
 			case "23505": // Unique Violation
-				fmt.Println("Registro duplicado detectado:", pqErr.Detail)
+				services.NewLogger().ErrorMessage(err.Error())
 				services.HandleResponseError(http.StatusConflict, "El número de póliza ya está registrado en el sistema", w)
 				return
 			}
 		}
-
-		// Si no es un error de duplicado o no es un pq.Error
-		fmt.Printf("Error de base de datos: %v\n", err)
-		services.HandleResponseError(http.StatusInternalServerError, "Error interno al procesar la póliza", w)
-		return
-	}
-
-	rows, err := db.Client.Query(`
-		SELECT  p.poliza_uuid, p.asegurado, p.contratante, p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro,
-			 	p.numpoliza, p.plan, p.tipo_seguro, p.addr_calle, p.addr_codigopostal, p.addr_ciudad, p.addr_colonia, p.addr_estado,
-				ppc.next_payment, p.user_uuid
-		FROM polizas p
-		JOIN polizas_payments_conf ppc
-		ON p.poliza_uuid = ppc.poliza_uuid
-		WHERE p.numpoliza = $1`, CobranzaItem.NumPoliza)
-	if err != nil {
-		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
 		return
 	}
 
-	for rows.Next() {
-		err := rows.Scan(&PolizaItemReturn.PolizaUUID, &PolizaItemReturn.Asegurado, &PolizaItemReturn.Contratante, &PolizaItemReturn.DiaCobro,
-			&PolizaItemReturn.Estatus, &PolizaItemReturn.FechaEmision, &PolizaItemReturn.FormaPago, &PolizaItemReturn.MedioCobro,
-			&PolizaItemReturn.NumPoliza, &PolizaItemReturn.Plan, &PolizaItemReturn.TipoSeguro,
-			&PolizaItemReturn.Direccion.Calle, &PolizaItemReturn.Direccion.CodigoPostal, &PolizaItemReturn.Direccion.Ciudad,
-			&PolizaItemReturn.Direccion.Colonia, &PolizaItemReturn.Direccion.Estado, &PolizaItemReturn.SiguientePago, &PolizaItemReturn.UserUUID)
+	err = db.Client.QueryRow(`SELECT poliza_id FROM polizas WHERE numpoliza = $1`, CobranzaItem.NumPoliza).Scan(&poliza_id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// CASO: No hay registros
+			fmt.Println("El agente no existe en la base de datos")
+			services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+		}
+
+		// CASO: Otro tipo de error (conexión, sintaxis, etc.)
+		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+	}
+
+	for _, asegurado_item := range CobranzaItem.Asegurados {
+		_, err = db.Client.Exec(`
+			INSERT INTO asegurados (birthday, nombre_completo, is_principal, poliza_id)
+			VALUES ($1, $2, $3,$4)`,
+			asegurado_item.Cumpleanos, asegurado_item.Nombre, asegurado_item.IsPrincipal, poliza_id)
 		if err != nil {
 			services.NewLogger().ErrorMessage(err.Error())
-			services.HandleResponseError(http.StatusBadRequest, err.Error(), w)
+			services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
 			return
 		}
 	}
 
-	services.HandleResponseSuccessWithData(PolizaItemReturn, w)
+	services.HandleResponseSuccess(w)
 }
 
 func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
@@ -273,16 +339,17 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT
-	    	COUNT(*) as total,
-		    COUNT(CASE WHEN p.estatus = 'En Vigor' THEN 1 END) as activas,
+				COUNT(*) as total,
+				COUNT(CASE WHEN p.estatus = 'En Vigor' THEN 1 END) as activas,
 			COUNT(CASE WHEN p.estatus != 'En Vigor' THEN 1 END) as inactivas,
 			COUNT(CASE WHEN (ppc.next_payment - CURRENT_DATE) <= INTERVAL '5 days' THEN 1 END) as por_vencer,
 			COUNT(CASE WHEN (ppc.next_payment - CURRENT_DATE) >= INTERVAL '5 days' AND ppl.paid_period != NULL THEN 1 END) as cobertura_activa,
 			COUNT(CASE WHEN ppl.paid_period IS NULL THEN 1 END) as sin_pago_registrado
 		FROM polizas p
-		JOIN polizas_payments_conf ppc ON p.poliza_uuid = ppc.poliza_uuid
-		LEFT JOIN polizas_payments_log ppl ON p.poliza_uuid = ppl.poliza_id
-		WHERE user_uuid = $1`
+		JOIN agentes a ON p.agente_id = a.agente_id
+		JOIN polizas_payments_conf ppc ON p.poliza_id = ppc.poliza_id
+		LEFT JOIN polizas_payments_log ppl ON p.poliza_id = ppl.poliza_id
+		WHERE a.agente_uuid = $1`
 
 	err := db.Client.QueryRow(query, userUUID).
 		Scan(&details.Total, &details.Activas, &details.Inactivas,
@@ -311,7 +378,11 @@ func ApiGetPolizasIds(w http.ResponseWriter, r *http.Request) {
 	var polizasids []string
 	polizasidspayload := make(map[string]interface{})
 
-	rows, err := db.Client.Query(`SELECT numpoliza FROM polizas WHERE user_uuid = $1`, userUUID)
+	rows, err := db.Client.Query(`
+		SELECT numpoliza
+		FROM polizas p
+		JOIN agentes a ON p.agente_id = a.agente_id
+		WHERE a.agente_uuid = $1`, userUUID)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
@@ -345,37 +416,64 @@ func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
 
 	services.NewLogger().OriginAdvice("ApiGetPoliza")
 
-	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
+	agente_uuid, _ := r.Context().Value(middlewares.UserIDKey).(string)
 
 	polizanum := GetField(r, 0)
+	var agente_id string
+	var poliza_id int
+
+	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, agente_uuid).Scan(&agente_id)
 
 	rows, err := db.Client.Query(`
-		SELECT  p.poliza_uuid, p.asegurado, p.contratante, p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro,
-			 	p.numpoliza, p.plan, p.tipo_seguro, p.addr_calle, p.addr_codigopostal, p.addr_ciudad, p.addr_colonia, p.addr_estado,
-				ppc.next_payment, p.user_uuid
+		SELECT  p.poliza_uuid, a.agente_uuid, p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro,
+				p.numpoliza, p.plan, p.tipo_seguro, p.addr_calle, p.addr_codigopostal, p.addr_ciudad, p.addr_colonia,
+				p.addr_estado, p.moneda, p.pais, p.email, p.telefono, ppc.next_payment, p.poliza_id
 		FROM polizas p
 		JOIN polizas_payments_conf ppc
-		ON p.poliza_uuid = ppc.poliza_uuid
+		ON p.poliza_id = ppc.poliza_id
+		JOIN agentes a
+		ON p.agente_id = a.agente_id
 		WHERE p.numpoliza = $1
-		AND user_uuid = $2`, polizanum, userUUID)
+		AND a.agente_id = $2`, polizanum, agente_id)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
+		services.NewLogger().ErrorMessage("ola")
 		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
 		return
 	}
 
 	var cobranza internal.GetItem_Poliza
 	for rows.Next() {
-		err := rows.Scan(&cobranza.PolizaUUID, &cobranza.Asegurado, &cobranza.Contratante, &cobranza.DiaCobro,
+		err := rows.Scan(&cobranza.PolizaUUID, &cobranza.AgenteUUID, &cobranza.DiaCobro,
 			&cobranza.Estatus, &cobranza.FechaEmision, &cobranza.FormaPago, &cobranza.MedioCobro,
 			&cobranza.NumPoliza, &cobranza.Plan, &cobranza.TipoSeguro,
 			&cobranza.Direccion.Calle, &cobranza.Direccion.CodigoPostal, &cobranza.Direccion.Ciudad,
-			&cobranza.Direccion.Colonia, &cobranza.Direccion.Estado, &cobranza.SiguientePago, &cobranza.UserUUID)
+			&cobranza.Direccion.Colonia, &cobranza.Direccion.Estado, &cobranza.Moneda, &cobranza.Pais,
+			&cobranza.Email, &cobranza.Telefono, &cobranza.SiguientePago, &poliza_id)
 		if err != nil {
 			services.NewLogger().ErrorMessage(err.Error())
 			services.HandleResponseError(http.StatusBadRequest, err.Error(), w)
 			return
 		}
+	}
+
+	rows, err = db.Client.Query(`
+		SELECT nombre_completo, birthday, is_principal FROM asegurados WHERE poliza_id = $1`, poliza_id)
+	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
+		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var asegurado internal.Asegurado
+		if err := rows.Scan(&asegurado.Nombre, &asegurado.Cumpleanos, &asegurado.IsPrincipal); err != nil {
+			services.NewLogger().ErrorMessage(err.Error())
+			services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+		}
+
+		cobranza.Asegurados = append(cobranza.Asegurados, asegurado)
 	}
 
 	if cobranza.NumPoliza == "" {
@@ -430,11 +528,11 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 	var cobranzas []internal.GetItem_Poliza
 	for rows.Next() {
 		var cobranza internal.GetItem_Poliza
-		err := rows.Scan(&cobranza.PolizaUUID, &cobranza.Asegurado, &cobranza.Contratante, &cobranza.DiaCobro,
+		err := rows.Scan(&cobranza.PolizaUUID, &cobranza.DiaCobro,
 			&cobranza.Estatus, &cobranza.FechaEmision, &cobranza.FormaPago, &cobranza.MedioCobro,
 			&cobranza.NumPoliza, &cobranza.Plan, &cobranza.TipoSeguro,
 			&cobranza.Direccion.Calle, &cobranza.Direccion.CodigoPostal, &cobranza.Direccion.Ciudad,
-			&cobranza.Direccion.Colonia, &cobranza.Direccion.Estado, &cobranza.SiguientePago, &cobranza.UserUUID)
+			&cobranza.Direccion.Colonia, &cobranza.Direccion.Estado, &cobranza.SiguientePago)
 		if err != nil {
 			fmt.Printf("Error con: %s\n", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
