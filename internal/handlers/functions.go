@@ -17,21 +17,24 @@ import (
  *
  */
 
-func GetPolizasDinamicas(db *sql.DB, filtros map[string]interface{}, user_uuid string) (*sql.Rows, error) {
+func GetPolizasDinamicas(db *sql.DB, filtros map[string]interface{}, agente_id string) (*sql.Rows, error) {
 	// 1. Iniciamos con el argumento del usuario
-	args := []interface{}{user_uuid}
-	argCount := 2 // Empezamos en 2 porque el $1 es el user_uuid
+	args := []interface{}{agente_id}
+	argCount := 2 // Empezamos en 2 porque el $1 es el agente_id
 
 	// Base de la consulta usando $1 para el UUID
 	sqlQuery := `
-		SELECT row_number() over (order by p.last_modified desc) rownum,
-		p.poliza_uuid, p.asegurado, p.contratante, p.dia_cobro, p.estatus, p.fecha_emision,
+	SELECT row_number() over (order by p.last_modified desc) rownum,
+		p.dia_cobro, p.estatus, p.fecha_emision,
 		p.forma_pago, p.medio_cobro, p.numpoliza, p.plan, p.tipo_seguro, p.addr_calle,
 		p.addr_codigopostal, p.addr_ciudad, p.addr_colonia, p.addr_estado,
-		ppc.next_payment, p.user_uuid as owner_id
-		FROM polizas p
-		JOIN polizas_payments_conf ppc ON ppc.poliza_uuid = p.poliza_uuid
-		WHERE p.user_uuid = $1
+		ppc.next_payment, p.agente_id as owner_id, p.moneda, p.pais, p.telefono,
+		p.email, p.suma_asegurada, p.last_modified
+	FROM polizas p
+	JOIN agentes a ON p.agente_id = a.agente_id
+	JOIN polizas_payments_conf ppc ON ppc.poliza_id = p.poliza_id
+	WHERE a.agente_id = $1
+	ORDER BY ppc.next_payment ASC
 	`
 
 	// 2. Construcción dinámica de filtros

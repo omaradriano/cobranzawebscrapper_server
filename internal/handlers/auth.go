@@ -140,7 +140,12 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 	 */
 
 	rows, err := db.Client.Query(
-		`SELECT email, agente_uuid, no_agente FROM agentes WHERE email = $1`,
+		`
+			SELECT a.email, a.agente_uuid, a.no_agente, a.role, ac.nombre as aseguradora, ac.aseguradora_id as aseguradora_id
+			FROM agentes a
+			JOIN aseguradoras_conf ac
+			ON ac.aseguradora_id = a.aseguradora_id
+			WHERE email = $1`,
 		google_user_response.Email,
 	)
 	if err != nil {
@@ -154,8 +159,11 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 
 	var email string
 	var no_agente string
+	var role string
+	var aseguradora_nombre string
+	var aseguradora_id string
 	for rows.Next() {
-		if err := rows.Scan(&email, &user_uuid, &no_agente); err != nil {
+		if err := rows.Scan(&email, &user_uuid, &no_agente, &role, &aseguradora_nombre, &aseguradora_id); err != nil {
 			fmt.Println(err.Error())
 			services.HandleResponseError(http.StatusInternalServerError, "Error al leer datos", w)
 			return
@@ -170,7 +178,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 
 	var ServerResponse internal.Server_Response_With_Token
 
-	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, email, no_agente)
+	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, email, no_agente, role, aseguradora_nombre, aseguradora_id)
 	if err != nil {
 		services.HandleResponseError(http.StatusInternalServerError, "Error al obtener jwt token", w)
 	}
@@ -215,6 +223,9 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 	var user_uuid string
 	var is_account_verified bool
 	var no_agente string
+	var aseguradora_nombre string
+	var aseguradora_id string
+	var role string
 	err := json.NewDecoder(r.Body).Decode(&login_credentials)
 	if err != nil {
 		fmt.Println("Error decoding JSON on ApiAuthenticateUserByCredentials:", err)
@@ -223,11 +234,13 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = db.Client.QueryRow(`
-		SELECT email, password_hash, agente_uuid, is_verified, no_agente
-		FROM agentes
+		SELECT a.email, a.password_hash, a.agente_uuid, a.is_verified, a.no_agente, a.role, ac.nombre as aseguradora, ac.aseguradora_id as aseguradora_id
+		FROM agentes a
+		JOIN aseguradoras_conf ac
+		ON ac.aseguradora_id = a.aseguradora_id
 		WHERE email = $1
 		`, login_credentials.Email).
-		Scan(&db_credentials.Email, &db_credentials.Password, &user_uuid, &is_account_verified, &no_agente)
+		Scan(&db_credentials.Email, &db_credentials.Password, &user_uuid, &is_account_verified, &no_agente, &role, &aseguradora_nombre, &aseguradora_id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			fmt.Println(err.Error())
@@ -253,7 +266,7 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, db_credentials.Email, no_agente)
+	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, db_credentials.Email, no_agente, role, aseguradora_nombre, aseguradora_id)
 	// ServerResponse.Email = db_credentials.Email
 
 	services.HandleResponseSuccessWithData(ServerResponse, w)
@@ -271,17 +284,26 @@ func ApiCheckSession(w http.ResponseWriter, r *http.Request) {
 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
 	userEmail, _ := r.Context().Value(middlewares.UserEmailKey).(string)
 	noAgente, _ := r.Context().Value(middlewares.UserNoAgente).(string)
+	userRole, _ := r.Context().Value(middlewares.UserRole).(string)
+	userInsuranceName, _ := r.Context().Value(middlewares.UserInsurance).(string)
+	userInsuranceID, _ := r.Context().Value(middlewares.UserInsuranceID).(string)
 
 	// Logging para depuración en tu servidor
 	fmt.Printf("--- Sesión Verificada ---\n")
-	fmt.Printf("User UUID: %s\n", userUUID)
-	fmt.Printf("Email:     %s\n", userEmail)
-	fmt.Printf("NoAgente:     %s\n", noAgente)
+	fmt.Printf("User UUID:   %s\n", userUUID)
+	fmt.Printf("Email:       %s\n", userEmail)
+	fmt.Printf("NoAgente:    %s\n", noAgente)
+	fmt.Printf("Role:        %s\n", userRole)
+	fmt.Printf("Insurance:   %s\n", userInsuranceName)
+	fmt.Printf("InsuranceID: %s\n", userInsuranceID)
 	fmt.Printf("-------------------------\n")
 
 	session_claims.AgenteUUID = userUUID
 	session_claims.Email = userEmail
 	session_claims.NoAgente = noAgente
+	session_claims.Role = userRole
+	session_claims.InsuranceName = userInsuranceName
+	session_claims.InsuranceID = userInsuranceID
 
 	// 3. Si llegamos aquí, el middleware ya validó el JWT.
 	// Simplemente respondemos éxito.
@@ -600,7 +622,7 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
  */
 func AllowOrigins(w http.ResponseWriter, request *http.Request) {
 	allowedOrigins := map[string]bool{
-		"http://localhost:5173":                               true,
+		"http://localhost:5173/*":                             true,
 		"chrome-extension://jgahlmealgaocieaemladngafmbbfgdo": true,
 	}
 

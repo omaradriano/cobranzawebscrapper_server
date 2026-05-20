@@ -65,13 +65,15 @@ func HandleResponseSuccess(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(customSuccess)
 }
 
-func GenerateJWT(user_uuid, email, no_agente string) (string, error) {
+func GenerateJWT(user_uuid, email, no_agente, role, aseguradora, aseguradora_id string) (string, error) {
 	claims := jwt.MapClaims{
-		"agente_uuid": user_uuid,
-		"exp":         time.Now().Add(time.Hour * 24).Unix(),
-		"email":       email,
-		"role":        "testRole",
-		"no_agente":   no_agente,
+		"uuid":           user_uuid,
+		"exp":            time.Now().Add(time.Hour * 24).Unix(),
+		"email":          email,
+		"role":           role,
+		"no_agente":      no_agente,
+		"insurance_name": aseguradora,
+		"insurance_id":   aseguradora_id,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

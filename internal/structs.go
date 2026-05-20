@@ -49,25 +49,34 @@ type Address struct {
 DTO para obtener datos de la base de datos
 */
 type GetItem_Poliza struct {
-	DiaCobro     int8        `json:"diaCobro"`
-	Estatus      string      `json:"estatus"`
-	FechaEmision string      `json:"fecha_emision"`
-	FormaPago    string      `json:"forma_pago"`
-	MedioCobro   string      `json:"medio_cobro"`
-	NumPoliza    string      `json:"num_poliza"`
-	Plan         string      `json:"plan"`
-	TipoSeguro   string      `json:"tipo_seguro"`
-	Moneda       string      `json:"moneda"`
-	Pais         string      `json:"pais"`
-	Asegurados   []Asegurado `json:"asegurados"`
-	Email        string      `json:"email"`
-	Telefono     string      `json:"telefono"`
+	DiaCobro           int8        `json:"diaCobro"`
+	Estatus            string      `json:"estatus"`
+	FechaEmision       string      `json:"fecha_emision"`
+	FormaPago          string      `json:"forma_pago"`
+	MedioCobro         string      `json:"medio_cobro"`
+	NumPoliza          string      `json:"num_poliza"`
+	Plan               string      `json:"plan"`
+	TipoSeguro         string      `json:"tipo_seguro"`
+	Moneda             string      `json:"moneda"`
+	Pais               string      `json:"pais"`
+	Asegurados         []Asegurado `json:"asegurados"`
+	Email              string      `json:"email"`
+	Telefono           string      `json:"telefono"`
+	SumaAsegurada      string      `json:"suma_asegurada"`
+	UltimaModificacion string      `json:"last_modified"`
 
 	Direccion Address `json:"direccion"`
 
 	SiguientePago string `json:"next_payment"`
 	PolizaUUID    string `json:"poliza_uuid"`
 	AgenteUUID    string `json:"agente_uuid"`
+}
+
+type GetItem_Poliza_Filters struct {
+	Agente_id  int               `json:"agente_id,omitempty"`
+	Filters    map[string]string `json:"filters"`
+	PageSize   int               `json:"pageSize"`
+	CurentPage int               `json:"currentPage"`
 }
 
 type HttpError struct {
@@ -120,9 +129,12 @@ type Google_Token struct {
 }
 
 type JWTClaims struct {
-	Email      string `json:"email"`
-	AgenteUUID string `json:"agente_uuid"`
-	NoAgente   string `json:"no_agente"`
+	Email         string `json:"email"`
+	AgenteUUID    string `json:"agente_uuid"`
+	NoAgente      string `json:"no_agente"`
+	Role          string `json:"agente_role"`
+	InsuranceName string `json:"insurance_name"`
+	InsuranceID   string `json:"insurance_id"`
 }
 
 type Google_User_Response struct {

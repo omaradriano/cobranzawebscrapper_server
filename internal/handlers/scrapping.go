@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/lib/pq"
@@ -342,7 +344,7 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 				COUNT(*) as total,
 				COUNT(CASE WHEN p.estatus = 'En Vigor' THEN 1 END) as activas,
 			COUNT(CASE WHEN p.estatus != 'En Vigor' THEN 1 END) as inactivas,
-			COUNT(CASE WHEN (ppc.next_payment - CURRENT_DATE) <= INTERVAL '5 days' THEN 1 END) as por_vencer,
+			COUNT(CASE WHEN ppc.next_payment >= CURRENT_DATE AND ppc.next_payment <= CURRENT_DATE + INTERVAL '5 days' THEN 1 END) as por_vencer,
 			COUNT(CASE WHEN (ppc.next_payment - CURRENT_DATE) >= INTERVAL '5 days' AND ppl.paid_period != NULL THEN 1 END) as cobertura_activa,
 			COUNT(CASE WHEN ppl.paid_period IS NULL THEN 1 END) as sin_pago_registrado
 		FROM polizas p
@@ -492,54 +494,258 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
-	fmt.Println("Request from ApiGetPolizas")
+	services.NewLogger().OriginAdvice("Request from ApiGetPolizas")
 	fmt.Printf("----------------------------------------\n")
-
-	slug := GetField(r, 0)
 
 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
 
-	fmt.Println(`Hola`)
-	fmt.Println(userUUID)
+	var filters internal.GetItem_Poliza_Filters
+	filters.Filters = make(map[string]string)
 
-	filtros := map[string]interface{}{}
+	queryParams := r.URL.Query()
 
-	switch slug {
-	case "all":
-		filtros = map[string]interface{}{}
-		break
-	case "active":
-		filtros["estatus"] = "En Vigor"
-		break
-	case "inactive":
-		filtros["estatus"] = "Anulada"
-		break
-	case "almost_due":
-		filtros["next_payment"] = "hello"
-		break
+	pageSize, _ := strconv.Atoi(queryParams.Get("pageSize"))
+	currentPage, _ := strconv.Atoi(queryParams.Get("currentPage"))
+
+	if pageSize <= 0 {
+		pageSize = 10
 	}
 
-	rows, err := GetPolizasDinamicas(db.Client, filtros, userUUID)
+	if currentPage <= 0 {
+		currentPage = 1
+	}
+
+	filters.PageSize = pageSize
+	filters.CurentPage = currentPage
+
+	// ==========================================================
+	// FILTROS
+	// ==========================================================
+
+	if status := queryParams.Get("estatus"); status != "" {
+		filters.Filters["estatus"] = status
+	}
+
+	if nextDue := queryParams.Get("next_due"); nextDue != "" {
+		filters.Filters["next_due"] = nextDue
+	}
+
+	if numPoliza := queryParams.Get("numpoliza"); numPoliza != "" {
+		filters.Filters["numpoliza"] = numPoliza
+	}
+
+	// ==========================================================
+	// OBTENER AGENTE
+	// ==========================================================
+
+	err := db.Client.QueryRow(`
+		SELECT agente_id
+		FROM agentes
+		WHERE agente_uuid=$1
+	`, userUUID).Scan(&filters.Agente_id)
 	if err != nil {
-		panic(err)
+		services.NewLogger().ErrorMessage(err.Error())
+		services.HandleResponseError(
+			http.StatusInternalServerError,
+			err.Error(),
+			w,
+		)
+		return
 	}
+
+	// ==========================================================
+	// BASE QUERY
+	// ==========================================================
+
+	baseQuery := `
+		FROM polizas p
+		JOIN agentes a
+			ON p.agente_id = a.agente_id
+		JOIN polizas_payments_conf ppc
+			ON ppc.poliza_id=p.poliza_id
+		WHERE a.agente_id=$1
+	`
+
+	args := []interface{}{filters.Agente_id}
+	argCount := 1
+
+	// ==========================================================
+	// FILTROS DINÁMICOS
+	// ==========================================================
+
+	for columna, valor := range filters.Filters {
+
+		if valor == "" {
+			continue
+		}
+
+		if columna == "next_due" && valor == "true" {
+			baseQuery += `
+				AND ppc.next_payment >= NOW()
+				AND ppc.next_payment <= NOW() + INTERVAL '5 days'
+			`
+		} else if columna == "numpoliza" {
+
+			argCount++
+
+			baseQuery += fmt.Sprintf(
+				" AND p.numpoliza ILIKE $%d",
+				argCount,
+			)
+
+			args = append(
+				args,
+				fmt.Sprintf("%%%s%%", valor),
+			)
+
+		} else {
+
+			argCount++
+
+			baseQuery += fmt.Sprintf(
+				" AND p.%s=$%d",
+				columna,
+				argCount,
+			)
+
+			args = append(args, valor)
+		}
+	}
+
+	// ==========================================================
+	// QUERY TOTAL
+	// ==========================================================
+
+	countQuery := "SELECT COUNT(*) " + baseQuery
+
+	var totalRecords int
+
+	err = db.Client.QueryRow(
+		countQuery,
+		args...,
+	).Scan(&totalRecords)
+	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
+
+		services.HandleResponseError(
+			http.StatusInternalServerError,
+			err.Error(),
+			w,
+		)
+
+		return
+	}
+
+	// ==========================================================
+	// PAGINACIÓN
+	// ==========================================================
+
+	offset := filters.PageSize *
+		(filters.CurentPage - 1)
+
+	totalPages := int(
+		math.Ceil(
+			float64(totalRecords) /
+				float64(filters.PageSize),
+		),
+	)
+
+	if totalPages <= 0 {
+		totalPages = 1
+	}
+
+	// ==========================================================
+	// QUERY DE DATOS
+	// ==========================================================
+
+	selectQuery := `
+		SELECT
+			p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro, p.numpoliza,
+			p.plan, p.tipo_seguro, p.addr_calle, p.addr_codigopostal, p.addr_ciudad, p.addr_colonia, p.addr_estado,
+			ppc.next_payment, p.moneda, p.pais, p.telefono, p.email, p.suma_asegurada, p.last_modified, p.poliza_uuid
+	` + baseQuery
+
+	argCount++
+
+	selectQuery += fmt.Sprintf(
+		`
+		ORDER BY p.last_modified DESC
+		LIMIT $%d
+		OFFSET $%d
+	`,
+		argCount,
+		argCount+1,
+	)
+
+	args = append(
+		args,
+		filters.PageSize,
+		offset,
+	)
+
+	rows, err := db.Client.Query(
+		selectQuery,
+		args...,
+	)
+	if err != nil {
+
+		services.NewLogger().ErrorMessage(
+			err.Error(),
+		)
+
+		services.HandleResponseError(
+			http.StatusInternalServerError,
+			err.Error(),
+			w,
+		)
+
+		return
+	}
+
 	defer rows.Close()
 
-	var cobranzas []internal.GetItem_Poliza
+	var polizas []internal.GetItem_Poliza
+
 	for rows.Next() {
-		var cobranza internal.GetItem_Poliza
-		err := rows.Scan(&cobranza.PolizaUUID, &cobranza.DiaCobro,
-			&cobranza.Estatus, &cobranza.FechaEmision, &cobranza.FormaPago, &cobranza.MedioCobro,
-			&cobranza.NumPoliza, &cobranza.Plan, &cobranza.TipoSeguro,
-			&cobranza.Direccion.Calle, &cobranza.Direccion.CodigoPostal, &cobranza.Direccion.Ciudad,
-			&cobranza.Direccion.Colonia, &cobranza.Direccion.Estado, &cobranza.SiguientePago)
+
+		var poliza internal.GetItem_Poliza
+
+		err := rows.Scan(
+			&poliza.DiaCobro, &poliza.Estatus, &poliza.FechaEmision,
+			&poliza.FormaPago, &poliza.MedioCobro, &poliza.NumPoliza, &poliza.Plan, &poliza.TipoSeguro,
+			&poliza.Direccion.Calle, &poliza.Direccion.CodigoPostal, &poliza.Direccion.Ciudad, &poliza.Direccion.Colonia,
+			&poliza.Direccion.Estado, &poliza.SiguientePago, &poliza.Moneda, &poliza.Pais, &poliza.Telefono, &poliza.Email,
+			&poliza.SumaAsegurada, &poliza.UltimaModificacion, &poliza.PolizaUUID,
+		)
 		if err != nil {
-			fmt.Printf("Error con: %s\n", err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+
+			services.HandleResponseError(
+				http.StatusInternalServerError,
+				err.Error(),
+				w,
+			)
+
 			return
 		}
-		cobranzas = append(cobranzas, cobranza)
+
+		polizas = append(
+			polizas,
+			poliza,
+		)
 	}
 
-	services.HandleResponseSuccessWithData(cobranzas, w)
+	if polizas == nil {
+		polizas = []internal.GetItem_Poliza{}
+	}
+
+	response := map[string]interface{}{
+		"items": polizas,
+		"total": totalRecords,
+		"pages": totalPages,
+	}
+
+	services.HandleResponseSuccessWithData(
+		response,
+		w,
+	)
 }

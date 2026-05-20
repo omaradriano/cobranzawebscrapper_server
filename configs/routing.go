@@ -40,8 +40,10 @@ var routes = []route{
 	}),
 	/**
 	 * Obtener todas las polizas
-	 */
-	newRoute("GET", "/v1/scrapping/polizas/([^/]+)", func(w http.ResponseWriter, r *http.Request) {
+		*
+		* http://server/v1/scrapping/polizas?status=
+	*/
+	newRoute("GET", "/v1/scrapping/polizas", func(w http.ResponseWriter, r *http.Request) {
 		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetPolizas)).ServeHTTP(w, r)
 	}),
 	/**
