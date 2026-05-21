@@ -18,7 +18,9 @@ type Env struct {
 
 var routes = []route{
 	// newRoute("PATCH", "/v1/cobranzaItem", handlers.ApiPatchCobranzaItem),
-	newRoute("PATCH", "/v1/cobranzaItemPayment", handlers.ApiPatchItemPayment),
+	newRoute("PATCH", "/v1/payments/poliza", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiSetPayment)).ServeHTTP(w, r)
+	}),
 
 	/**
 	 * Subir una poliza

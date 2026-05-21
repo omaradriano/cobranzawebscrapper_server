@@ -113,7 +113,7 @@ type CobranzaPatchItem struct {
 type CobranzaItemPayment struct {
 	Poliza     string `json:"poliza"`
 	PaidPeriod string `json:"paid_period"`
-	Asegurador string `json:"asegurador"`
+	Agente     string `json:"agente"`
 }
 
 /*
