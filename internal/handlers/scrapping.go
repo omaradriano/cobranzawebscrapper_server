@@ -344,7 +344,7 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 				COUNT(*) as total,
 				COUNT(CASE WHEN p.estatus = 'En Vigor' THEN 1 END) as activas,
 			COUNT(CASE WHEN p.estatus != 'En Vigor' THEN 1 END) as inactivas,
-			COUNT(CASE WHEN ppc.next_payment >= CURRENT_DATE AND ppc.next_payment <= CURRENT_DATE + INTERVAL '5 days' THEN 1 END) as por_vencer,
+			COUNT(CASE WHEN ppc.next_payment <= CURRENT_DATE + INTERVAL '5 days' THEN 1 END) as por_vencer,
 			COUNT(CASE WHEN (ppc.next_payment - CURRENT_DATE) >= INTERVAL '5 days' AND ppl.paid_period != NULL THEN 1 END) as cobertura_activa,
 			COUNT(CASE WHEN ppl.paid_period IS NULL THEN 1 END) as sin_pago_registrado
 		FROM polizas p
@@ -581,7 +581,6 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 
 		if columna == "next_due" && valor == "true" {
 			baseQuery += `
-				AND ppc.next_payment >= NOW()
 				AND ppc.next_payment <= NOW() + INTERVAL '5 days'
 			`
 		} else if columna == "numpoliza" {
@@ -669,7 +668,7 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 
 	selectQuery += fmt.Sprintf(
 		`
-		ORDER BY p.last_modified DESC
+		ORDER BY ppc.next_payment ASC
 		LIMIT $%d
 		OFFSET $%d
 	`,
@@ -748,4 +747,83 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 		response,
 		w,
 	)
+}
+
+/*
+*
+Obtencion de todas las polizas
+*/
+func ApiGetBirthdates(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+	w.Header().Set("Access-Control-Allow-Methods", "GET")
+
+	services.NewLogger().OriginAdvice("Request from ApiGetBirthdates")
+	fmt.Printf("----------------------------------------\n")
+
+	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
+
+	var agente_id string
+
+	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, userUUID).Scan(&agente_id)
+	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
+		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+	}
+
+	rows, err := db.Client.Query(`
+		WITH birthday_calc AS (
+		    SELECT
+		        a.nombre_completo,
+		        a.birthday,
+								p.numpoliza,
+		        MAKE_DATE(
+		            EXTRACT(YEAR FROM NOW())::int,
+		            EXTRACT(MONTH FROM birthday)::int,
+		            EXTRACT(DAY FROM birthday)::int
+		        )::timestamp AS has_current_year_birthday
+		    FROM asegurados a
+						JOIN polizas p ON p.poliza_id = a.poliza_id
+						JOIN agentes ag ON ag.agente_id = p.agente_id
+						WHERE aG.agente_id = $1
+		)
+		SELECT
+		    nombre_completo,
+		    CASE
+		        WHEN has_current_year_birthday < NOW() THEN has_current_year_birthday + INTERVAL '1 year'
+		        ELSE has_current_year_birthday
+		    END AS next_birthday,
+						numpoliza
+		FROM birthday_calc
+		ORDER BY next_birthday ASC;
+		`, agente_id)
+	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
+		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+	}
+
+	var asegurados_birthdates []internal.AseguradoBirthdate
+
+	for rows.Next() {
+
+		var asegurado_item internal.AseguradoBirthdate
+
+		err := rows.Scan(&asegurado_item.NombreCompleto, &asegurado_item.Birthdate, &asegurado_item.Numpoliza)
+		if err != nil {
+
+			services.HandleResponseError(
+				http.StatusInternalServerError,
+				err.Error(),
+				w,
+			)
+
+			return
+		}
+
+		asegurados_birthdates = append(
+			asegurados_birthdates,
+			asegurado_item,
+		)
+	}
+
+	services.HandleResponseSuccessWithData(asegurados_birthdates, w)
 }

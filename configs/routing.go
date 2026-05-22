@@ -68,6 +68,12 @@ var routes = []route{
 	newRoute("GET", "/v1/scrapping/poliza/([^/]+)", func(w http.ResponseWriter, r *http.Request) {
 		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetPoliza)).ServeHTTP(w, r)
 	}),
+	/**
+	 * Obtener fechas de siguientes cumpleanos
+	 */
+	newRoute("GET", "/v1/polizas/birthdates", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetBirthdates)).ServeHTTP(w, r)
+	}),
 
 	// Authentication ----------------------------
 	//

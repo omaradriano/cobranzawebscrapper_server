@@ -116,6 +116,12 @@ type CobranzaItemPayment struct {
 	Agente     string `json:"agente"`
 }
 
+type AseguradoBirthdate struct {
+	NombreCompleto string `json:"nombrecompleto"`
+	Birthdate      string `json:"birthdate"`
+	Numpoliza      string `json:"numpoliza"`
+}
+
 /*
  * AUTHENTICATION
  */
