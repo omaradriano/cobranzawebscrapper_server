@@ -18,7 +18,8 @@ type Env struct {
 func CreateDbConn() (*sql.DB, error) {
 	connStr := fmt.Sprintf("host=%s port=%s user=%s "+
 		"password=%s dbname=%s sslmode=disable",
-		env.PostgresServer, env.PostgresDatabasePort, env.PostgresUser, env.PostgresPassword, env.PostgresDatabase)
+		env.Envs.Db_Server, env.Envs.Db_Port, env.Envs.Db_User,
+		env.Envs.Db_Password, env.Envs.Db_Database)
 
 	Client, err := sql.Open("postgres", connStr)
 	if err != nil {

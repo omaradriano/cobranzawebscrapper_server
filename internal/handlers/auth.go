@@ -10,6 +10,7 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
+	"github.com/omaradriano/cobranzawebscrapper_server/env"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
@@ -24,8 +25,10 @@ func ApiCheckPasswordExist(w http.ResponseWriter, r *http.Request) {
 	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
-	fmt.Println("Request from ApiCheckPasswordExist")
-	fmt.Printf("----------------------------------------\n")
+	if env.Envs.Mode == "dev" {
+		fmt.Println("Request from ApiCheckPasswordExist")
+		fmt.Printf("----------------------------------------\n")
+	}
 
 	/**
 	 * Verificacion para saber si el email registrado tiene una contrasena.
@@ -56,7 +59,6 @@ func ApiCheckPasswordExist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hasPassword.Valid {
-		fmt.Println("Tiene password:", hasPassword.String)
 		found = true
 	}
 
@@ -104,7 +106,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 		Timeout: time.Second * 10,
 	}
 
-	url := "https://www.googleapis.com/oauth2/v3/userinfo"
+	url := env.Envs.GoogleApiAuth
 	method := "GET"
 	payload := strings.NewReader(``)
 
@@ -592,7 +594,8 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Println(err.Error())
 		// services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
-		http.Redirect(w, r, "http://localhost:5173/auth/verifiedaccount?status=invalid", http.StatusSeeOther)
+		redirectUrl := fmt.Sprintf(`http://%s:%s/auth/verifiedaccount?status=invalid`, env.Envs.ServerHost, env.Envs.ServerPort)
+		http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
 		return
 	}
 
@@ -610,7 +613,9 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Se ha verificado la cuenta")
 
-	http.Redirect(w, r, "http://localhost:5173/auth/verifiedaccount?status=success", http.StatusSeeOther)
+	redirectUrl := fmt.Sprintf(`http://%s:%s/auth/verifiedaccount?status=success`, env.Envs.ServerHost, env.Envs.ServerPort)
+
+	http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
 	return
 }
 
