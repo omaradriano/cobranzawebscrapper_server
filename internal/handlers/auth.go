@@ -594,7 +594,7 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Println(err.Error())
 		// services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
-		redirectUrl := fmt.Sprintf(`http://%s:%s/auth/verifiedaccount?status=invalid`, env.Envs.WebAppURL, env.Envs.WebAppPort)
+		redirectUrl := fmt.Sprintf(`http://%s/auth/verifiedaccount?status=invalid`, env.Envs.WebAppURL)
 		http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
 		return
 	}
@@ -613,7 +613,7 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("Se ha verificado la cuenta")
 
-	redirectUrl := fmt.Sprintf(`http://%s:%s/auth/verifiedaccount?status=success`, env.Envs.WebAppURL, env.Envs.WebAppPort)
+	redirectUrl := fmt.Sprintf(`http://%s/auth/verifiedaccount?status=success`, env.Envs.WebAppURL)
 
 	http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
 	return

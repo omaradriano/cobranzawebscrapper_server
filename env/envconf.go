@@ -10,15 +10,8 @@ import (
 )
 
 type Config struct {
-	WebAppURL  string
-	WebAppPort string
-
-	Db_Database string
-	Db_User     string
-	Db_Password string
-	Db_Port     string
-	Db_Server   string
-	DB_URL      string
+	WebAppURL string
+	DB_URL    string
 
 	Mode string
 
@@ -41,16 +34,10 @@ func LoadConfig() {
 	}
 
 	Envs = &Config{
-		WebAppURL:   getEnv("WEBAPP_URL", ""),
-		WebAppPort:  getEnv("WEBAPP_PORT", ""),
-		JWTSecret:   getEnv("JWT_SECRET", ""),
-		Mode:        getEnv("MODE", ""),
-		Db_Database: getEnv("DB_DATABASE", ""),
-		Db_User:     getEnv("DB_USER", ""),
-		Db_Password: getEnv("DB_PASSWORD", ""),
-		Db_Port:     getEnv("DB_PORT", ""),
-		Db_Server:   getEnv("DB_SERVER", ""),
-		DB_URL:      getEnv("DB_URL", ""),
+		WebAppURL: getEnv("WEBAPP_URL", ""),
+		JWTSecret: getEnv("JWT_SECRET", ""),
+		Mode:      getEnv("MODE", ""),
+		DB_URL:    getEnv("DB_URL", ""),
 
 		ResendToken: getEnv("TOKEN_RESEND", ""),
 
