@@ -18,6 +18,7 @@ type Config struct {
 	Db_Password string
 	Db_Port     string
 	Db_Server   string
+	DB_URL      string
 
 	Mode string
 
@@ -49,6 +50,7 @@ func LoadConfig() {
 		Db_Password: getEnv("DB_PASSWORD", ""),
 		Db_Port:     getEnv("DB_PORT", ""),
 		Db_Server:   getEnv("DB_SERVER", ""),
+		DB_URL:      getEnv("DB_URL", ""),
 
 		ResendToken: getEnv("TOKEN_RESEND", ""),
 
