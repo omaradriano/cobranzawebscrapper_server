@@ -13,7 +13,10 @@ import (
 
 func main() {
 	env.LoadConfig()
-	dbConn, _ := db.CreateDbConn()
+	dbConn, err := db.CreateDbConn()
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
 	db.Client = dbConn
 	defer db.Client.Close()
 
