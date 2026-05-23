@@ -8,7 +8,6 @@ import (
 	"github.com/omaradriano/cobranzawebscrapper_server/configs"
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
 	"github.com/omaradriano/cobranzawebscrapper_server/env"
-	"github.com/omaradriano/cobranzawebscrapper_server/internal/handlers"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
 )
 
@@ -28,7 +27,7 @@ func main() {
 	fmt.Printf("Servidor corriendo en http://%s:%v\n", env.Envs.ServerHost, env.Envs.ServerPort)
 	fmt.Printf("----------------------------------------\n")
 
-	handler := handlers.EnableCORS(http.DefaultServeMux)
+	handler := services.EnableCORS(http.DefaultServeMux)
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(`:%s`, env.Envs.ServerPort), handler))
 }

@@ -22,7 +22,6 @@ import (
  * Esto debido a que necesitamos una contraseña en caso de que el usuario quiera usar credenciales manuales para hacer login
  */
 func ApiCheckPasswordExist(w http.ResponseWriter, r *http.Request) {
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	if env.Envs.Mode == "dev" {
@@ -82,7 +81,6 @@ func ApiCheckPasswordExist(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	fmt.Println("Request from ApiAuthenticateUser")
@@ -213,7 +211,6 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
 	fmt.Println("Request from ApiAuthenticateUserByCredentials")
@@ -275,10 +272,6 @@ func ApiAuthenticateUserByCredentials(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiCheckSession(w http.ResponseWriter, r *http.Request) {
-	// 1. Configuramos Headers (CORS)
-	AllowOrigins(w, r)
-	w.Header().Set("Access-Control-Allow-Methods", "GET")
-
 	var session_claims internal.JWTClaims
 
 	// 2. Extraemos los claims que el Middleware inyectó en el contexto
@@ -320,8 +313,6 @@ func ApiSetCredentials(w http.ResponseWriter, r *http.Request) {
 			* 	"password":string,
 			* }
 	*/
-	AllowOrigins(w, r)
-	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
 	fmt.Println("Request from ApiSetCredentials")
 	fmt.Printf("----------------------------------------\n")
@@ -415,8 +406,6 @@ func ApiRegisterUser(w http.ResponseWriter, r *http.Request) {
 			* 	"insurance": string
 			* }
 	*/
-	AllowOrigins(w, r)
-	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
 	fmt.Println("Request from ApiRegisterUser")
 	fmt.Printf("----------------------------------------\n")
@@ -483,8 +472,6 @@ func ApiResetPasswordMail(w http.ResponseWriter, r *http.Request) {
 			* 	"password":string
 			* }
 	*/
-	AllowOrigins(w, r)
-	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
 	fmt.Println("Request from ApiResetPasswordMail")
 	fmt.Printf("----------------------------------------\n")
@@ -554,8 +541,6 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 			* 	"insurance": string
 			* }
 	*/
-	AllowOrigins(w, r)
-	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	fmt.Println("Request from ApiVerifyAccount")
 	fmt.Printf("----------------------------------------\n")
@@ -617,24 +602,4 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
 	return
-}
-
-/**
- *
- * Permite el origen que se haya recibido en el request
- * [] Globalizar la lista de los origenes permitidos
- *
- */
-func AllowOrigins(w http.ResponseWriter, request *http.Request) {
-	allowedOrigins := map[string]bool{
-		"http://localhost:5173/*":                             true,
-		"https://goagent.com.mx/*":                            true,
-		"chrome-extension://jgahlmealgaocieaemladngafmbbfgdo": true,
-	}
-
-	origin := request.Header.Get("Origin")
-
-	if allowedOrigins[origin] {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-	}
 }

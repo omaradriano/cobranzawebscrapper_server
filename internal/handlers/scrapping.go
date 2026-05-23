@@ -23,7 +23,6 @@ func ApiGetPolizasCountByUser(w http.ResponseWriter, r *http.Request) {
 	/*
 	 * [] Implementar el uso de JWT para acceso a la ruta
 	 */
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	services.NewLogger().OriginAdvice("ApiGetPolizasCountByUser")
@@ -47,7 +46,6 @@ func ApiGetPolizasCountByUser(w http.ResponseWriter, r *http.Request) {
 Carga masiva de los registros
 */
 func ApiPostPolizas(w http.ResponseWriter, r *http.Request) {
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
 	services.NewLogger().OriginAdvice("ApiPostPolizas")
@@ -251,7 +249,6 @@ func ApiPostPolizas(w http.ResponseWriter, r *http.Request) {
 Carga de una sola poliza
 */
 func ApiPostPoliza(w http.ResponseWriter, r *http.Request) {
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
 	services.NewLogger().OriginAdvice("ApiPostPoliza")
@@ -330,7 +327,6 @@ func ApiPostPoliza(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	services.NewLogger().OriginAdvice("ApiGetDetails")
@@ -371,7 +367,6 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiGetPolizasIds(w http.ResponseWriter, r *http.Request) {
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	services.NewLogger().OriginAdvice("ApiGetPolizasIds")
@@ -413,7 +408,6 @@ func ApiGetPolizasIds(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
-	AllowOrigins(w, r)
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	services.NewLogger().OriginAdvice("ApiGetPoliza")
