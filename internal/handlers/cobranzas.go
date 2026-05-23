@@ -61,7 +61,6 @@ func ApiSetPayment(w http.ResponseWriter, r *http.Request) {
 
 func EnableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 1. Detectar desde dónde viene la petición (el origen)
 		origin := r.Header.Get("Origin")
 
 		if origin == "http://localhost:5173" ||

@@ -491,7 +491,6 @@ func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
 Obtencion de todas las polizas
 */
 func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	services.NewLogger().OriginAdvice("Request from ApiGetPolizas")
@@ -754,7 +753,6 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 Obtencion de todas las polizas
 */
 func ApiGetBirthdates(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	services.NewLogger().OriginAdvice("Request from ApiGetBirthdates")

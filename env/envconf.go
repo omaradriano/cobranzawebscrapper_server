@@ -23,6 +23,9 @@ type Config struct {
 	ServerPort string
 
 	GoogleApiAuth string
+
+	MailDestinationWeb    string
+	MailDestinationServer string
 }
 
 var Envs *Config
@@ -45,6 +48,9 @@ func LoadConfig() {
 		ServerPort: getEnv("SERVER_PORT", ""),
 
 		GoogleApiAuth: getEnv("GOOGLE_API_AUTH_URL", ""),
+
+		MailDestinationWeb:    getEnv("MAIL_DESTINATION_WEB", ""),
+		MailDestinationServer: getEnv("MAIL_DESTINATION_SERVER", ""),
 	}
 
 	valueof := reflect.ValueOf(Envs).Elem()

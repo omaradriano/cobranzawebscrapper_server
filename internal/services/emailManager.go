@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 
+	"github.com/omaradriano/cobranzawebscrapper_server/env"
 	"github.com/resend/resend-go/v3"
 )
 
@@ -22,10 +23,10 @@ func SendMail(destination, confimation_token, email_type string) error {
 	case "ResetPassword":
 		email_type_value = "setpassword"
 		displayMessage = "Restablecer contraseña"
-		destination_router = "localhost:5173"
+		destination_router = env.Envs.MailDestinationWeb
 		break
 	case "Register":
-		destination_router = "127.0.0.1:3006/v1"
+		destination_router = env.Envs.MailDestinationServer
 		email_type_value = "verifyaccount"
 		displayMessage = "Verificar cuenta"
 		break
@@ -34,7 +35,7 @@ func SendMail(destination, confimation_token, email_type string) error {
 	params := &resend.SendEmailRequest{
 		From: "Acme <onboarding@resend.dev>",
 		To:   []string{destination},
-		Html: fmt.Sprintf(`<a href="http://%s/auth/%s?token=%s&setpasswordmode=resetpassword">%s c:</a>`,
+		Html: fmt.Sprintf(`<a href="%s/auth/%s?token=%s&setpasswordmode=resetpassword">%s c:</a>`,
 			destination_router, email_type_value, confimation_token, displayMessage),
 		Subject: "Confirmación de cuenta para polizas-tracker",
 		// Cc:      []string{"cc@example.com"},
