@@ -628,6 +628,7 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 func AllowOrigins(w http.ResponseWriter, request *http.Request) {
 	allowedOrigins := map[string]bool{
 		"http://localhost:5173/*":                             true,
+		"https://goagent.com.mx/*":                            true,
 		"chrome-extension://jgahlmealgaocieaemladngafmbbfgdo": true,
 	}
 

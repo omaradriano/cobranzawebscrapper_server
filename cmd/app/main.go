@@ -9,11 +9,17 @@ import (
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
 	"github.com/omaradriano/cobranzawebscrapper_server/env"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/handlers"
+	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
 )
 
 func main() {
 	env.LoadConfig()
-	dbConn, _ := db.CreateDbConn()
+	dbConn, err := db.CreateDbConn()
+	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
+		return
+	}
+
 	db.Client = dbConn
 	defer db.Client.Close()
 

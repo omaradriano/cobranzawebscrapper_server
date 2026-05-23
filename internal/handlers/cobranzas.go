@@ -61,15 +61,24 @@ func ApiSetPayment(w http.ResponseWriter, r *http.Request) {
 
 func EnableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// 1. Detectar desde dónde viene la petición (el origen)
+		origin := r.Header.Get("Origin")
 
-		if r.Method == http.MethodOptions {
+		if origin == "http://localhost:5173" ||
+			origin == "https://www.goagent.com.mx" ||
+			origin == "https://goagent.com.mx" {
+
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
+
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }
