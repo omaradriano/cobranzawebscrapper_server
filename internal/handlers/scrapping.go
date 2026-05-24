@@ -415,7 +415,7 @@ func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
 	agente_uuid, _ := r.Context().Value(middlewares.UserIDKey).(string)
 
 	polizanum := GetField(r, 0)
-	var agente_id string
+	var agente_id int
 	var poliza_id int
 
 	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, agente_uuid).Scan(&agente_id)
@@ -437,6 +437,8 @@ func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
 		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
 		return
 	}
+
+	defer rows.Close()
 
 	var cobranza internal.GetItem_Poliza
 	for rows.Next() {
@@ -711,6 +713,8 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 		)
 		if err != nil {
 
+			rows.Close()
+
 			services.HandleResponseError(
 				http.StatusInternalServerError,
 				err.Error(),
@@ -754,7 +758,7 @@ func ApiGetBirthdates(w http.ResponseWriter, r *http.Request) {
 
 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
 
-	var agente_id string
+	var agente_id int
 
 	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, userUUID).Scan(&agente_id)
 	if err != nil {
