@@ -455,6 +455,8 @@ func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	rows.Close()
+
 	rows, err = db.Client.Query(`
 		SELECT nombre_completo, birthday, is_principal FROM asegurados WHERE poliza_id = $1`, poliza_id)
 	if err != nil {
