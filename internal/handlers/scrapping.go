@@ -602,73 +602,51 @@ Obtencion de todas las polizas
 */
 func ApiGetBirthdates(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
-
 	services.NewLogger().OriginAdvice("Request from ApiGetBirthdates")
 	fmt.Printf("----------------------------------------\n")
 
 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
-
 	var agente_id int
 
 	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, userUUID).Scan(&agente_id)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+		return
 	}
 
 	rows, err := db.Client.Query(`
 		WITH birthday_calc AS (
-		    SELECT
-		        a.nombre_completo,
-		        a.birthday,
-								p.numpoliza,
-		        MAKE_DATE(
-		            EXTRACT(YEAR FROM NOW())::int,
-		            EXTRACT(MONTH FROM birthday)::int,
-		            EXTRACT(DAY FROM birthday)::int
-		        )::timestamp AS has_current_year_birthday
-		    FROM asegurados a
-						JOIN polizas p ON p.poliza_id = a.poliza_id
-						JOIN agentes ag ON ag.agente_id = p.agente_id
-						WHERE ag.agente_id = $1
+			SELECT a.nombre_completo, a.birthday, p.numpoliza,
+				MAKE_DATE(EXTRACT(YEAR FROM NOW())::int, EXTRACT(MONTH FROM birthday)::int, EXTRACT(DAY FROM birthday)::int)::timestamp AS has_current_year_birthday
+			FROM asegurados a
+			JOIN polizas p ON p.poliza_id = a.poliza_id
+			JOIN agentes ag ON ag.agente_id = p.agente_id
+			WHERE ag.agente_id = $1
 		)
-		SELECT
-		    nombre_completo,
-		    CASE
-		        WHEN has_current_year_birthday < NOW() THEN has_current_year_birthday + INTERVAL '1 year'
-		        ELSE has_current_year_birthday
-		    END AS next_birthday,
-						numpoliza
+		SELECT nombre_completo,
+			CASE WHEN has_current_year_birthday < NOW() THEN has_current_year_birthday + INTERVAL '1 year' ELSE has_current_year_birthday END AS next_birthday,
+			numpoliza
 		FROM birthday_calc
 		ORDER BY next_birthday ASC;
-		`, agente_id)
+	`, agente_id)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
 		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+		return
 	}
+	defer rows.Close()
 
 	var asegurados_birthdates []internal.AseguradoBirthdate
-
 	for rows.Next() {
-
 		var asegurado_item internal.AseguradoBirthdate
-
 		err := rows.Scan(&asegurado_item.NombreCompleto, &asegurado_item.Birthdate, &asegurado_item.Numpoliza)
 		if err != nil {
-
-			services.HandleResponseError(
-				http.StatusInternalServerError,
-				err.Error(),
-				w,
-			)
-
+			rows.Close()
+			services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
 			return
 		}
-
-		asegurados_birthdates = append(
-			asegurados_birthdates,
-			asegurado_item,
-		)
+		asegurados_birthdates = append(asegurados_birthdates, asegurado_item)
 	}
 
 	services.HandleResponseSuccessWithData(asegurados_birthdates, w)
