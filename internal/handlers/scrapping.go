@@ -332,8 +332,16 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 	services.NewLogger().OriginAdvice("ApiGetDetails")
 
 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
+	var agente_id int
 
 	var details internal.PolizasUserDetails
+
+	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, userUUID).Scan(&agente_id)
+	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
+		services.HandleResponseError(http.StatusInternalServerError, "No se ha encontrado al usuario ingresado", w)
+		return
+	}
 
 	query := `
 		SELECT
@@ -347,9 +355,9 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 		JOIN agentes a ON p.agente_id = a.agente_id
 		JOIN polizas_payments_conf ppc ON p.poliza_id = ppc.poliza_id
 		LEFT JOIN polizas_payments_log ppl ON p.poliza_id = ppl.poliza_id
-		WHERE a.agente_uuid = $1`
+		WHERE a.agente_id = $1`
 
-	err := db.Client.QueryRow(query, userUUID).
+	err = db.Client.QueryRow(query, agente_id).
 		Scan(&details.Total, &details.Activas, &details.Inactivas,
 			&details.PorVencer, &details.CoberturaActiva, &details.SinPagoRegistrado)
 	if err != nil {
