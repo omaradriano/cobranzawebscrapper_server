@@ -333,17 +333,13 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
 	var details internal.PolizasUserDetails
 
-	// 💡 REESTRUCTURACIÓN:
-	// 1. Usamos directamente a.agente_uuid = $1 para resolver todo en una sola consulta.
-	// 2. Envolvemos cada métrica en COALESCE(..., 0) para evitar errores si la base de datos devuelve NULL.
-	// 3. Corregimos la resta de días para que sea una comparación directa de enteros (>= 5).
 	query := `
 		SELECT
 			COALESCE(COUNT(*), 0) as total,
 			COALESCE(COUNT(CASE WHEN p.estatus = 'En Vigor' THEN 1 END), 0) as activas,
 			COALESCE(COUNT(CASE WHEN p.estatus != 'En Vigor' THEN 1 END), 0) as inactivas,
 			COALESCE(COUNT(CASE WHEN ppc.next_payment <= CURRENT_DATE + INTERVAL '5 days' THEN 1 END), 0) as por_vencer,
-			COALESCE(COUNT(CASE WHEN (ppc.next_payment - CURRENT_DATE) >= 5 AND ppl.paid_period IS NOT NULL THEN 1 END), 0) as cobertura_activa,
+			COALESCE(COUNT(CASE WHEN ppc.next_payment >= CURRENT_DATE + INTERVAL '5 days' AND ppl.paid_period IS NOT NULL THEN 1 END), 0) as cobertura_activa,
 			COALESCE(COUNT(CASE WHEN ppl.paid_period IS NULL THEN 1 END), 0) as sin_pago_registrado
 		FROM polizas p
 		JOIN agentes a ON p.agente_id = a.agente_id
