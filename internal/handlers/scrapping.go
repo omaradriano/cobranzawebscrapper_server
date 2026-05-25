@@ -328,41 +328,40 @@ func ApiPostPoliza(w http.ResponseWriter, r *http.Request) {
 
 func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
-
 	services.NewLogger().OriginAdvice("ApiGetDetails")
 
 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
-	var agente_id int
-
 	var details internal.PolizasUserDetails
 
-	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, userUUID).Scan(&agente_id)
-	if err != nil {
-		services.NewLogger().ErrorMessage(err.Error())
-		services.HandleResponseError(http.StatusInternalServerError, "No se ha encontrado al usuario ingresado", w)
-		return
-	}
-
+	// 💡 REESTRUCTURACIÓN:
+	// 1. Usamos directamente a.agente_uuid = $1 para resolver todo en una sola consulta.
+	// 2. Envolvemos cada métrica en COALESCE(..., 0) para evitar errores si la base de datos devuelve NULL.
+	// 3. Corregimos la resta de días para que sea una comparación directa de enteros (>= 5).
 	query := `
 		SELECT
-			COUNT(*) as total,
-			COUNT(CASE WHEN p.estatus = 'En Vigor' THEN 1 END) as activas,
-			COUNT(CASE WHEN p.estatus != 'En Vigor' THEN 1 END) as inactivas,
-			COUNT(CASE WHEN ppc.next_payment <= CURRENT_DATE + INTERVAL '5 days' THEN 1 END) as por_vencer,
-			COUNT(CASE WHEN (ppc.next_payment - CURRENT_DATE) >= INTERVAL '5 days' AND ppl.paid_period IS NOT NULL THEN 1 END) as cobertura_activa,
-			COUNT(CASE WHEN ppl.paid_period IS NULL THEN 1 END) as sin_pago_registrado
+			COALESCE(COUNT(*), 0) as total,
+			COALESCE(COUNT(CASE WHEN p.estatus = 'En Vigor' THEN 1 END), 0) as activas,
+			COALESCE(COUNT(CASE WHEN p.estatus != 'En Vigor' THEN 1 END), 0) as inactivas,
+			COALESCE(COUNT(CASE WHEN ppc.next_payment <= CURRENT_DATE + INTERVAL '5 days' THEN 1 END), 0) as por_vencer,
+			COALESCE(COUNT(CASE WHEN (ppc.next_payment - CURRENT_DATE) >= 5 AND ppl.paid_period IS NOT NULL THEN 1 END), 0) as cobertura_activa,
+			COALESCE(COUNT(CASE WHEN ppl.paid_period IS NULL THEN 1 END), 0) as sin_pago_registrado
 		FROM polizas p
 		JOIN agentes a ON p.agente_id = a.agente_id
 		JOIN polizas_payments_conf ppc ON p.poliza_id = ppc.poliza_id
 		LEFT JOIN polizas_payments_log ppl ON p.poliza_id = ppl.poliza_id
-		WHERE a.agente_id = $1`
+		WHERE a.agente_uuid = $1`
 
-	err = db.Client.QueryRow(query, agente_id).
-		Scan(&details.Total, &details.Activas, &details.Inactivas,
-			&details.PorVencer, &details.CoberturaActiva, &details.SinPagoRegistrado)
+	err := db.Client.QueryRow(query, userUUID).Scan(
+		&details.Total,
+		&details.Activas,
+		&details.Inactivas,
+		&details.PorVencer,
+		&details.CoberturaActiva,
+		&details.SinPagoRegistrado,
+	)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
-		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+		services.HandleResponseError(http.StatusInternalServerError, "Error al recopilar las métricas del dashboard", w)
 		return
 	}
 
