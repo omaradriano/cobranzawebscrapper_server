@@ -418,8 +418,11 @@ func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
 
 	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, agente_uuid).Scan(&agente_id)
 
+	fmt.Println(polizanum)
+	fmt.Println(agente_id)
+
 	rows, err := db.Client.Query(`
-		SELECT  p.poliza_uuid p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro,
+		SELECT  p.poliza_uuid, p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro,
 				p.numpoliza, p.plan, p.tipo_seguro, p.addr_calle, p.addr_codigopostal, p.addr_ciudad, p.addr_colonia,
 				p.addr_estado, p.moneda, p.pais, p.email, p.telefono, ppc.next_payment, p.poliza_id
 		FROM polizas p
@@ -516,13 +519,9 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 		filters.Filters["numpoliza"] = numPoliza
 	}
 
-	// 💡 Fusionamos la lógica de estatus y show_anuladas ordenando prioridades:
 	if status := queryParams.Get("estatus"); status != "" {
-		// Si el usuario filtró explícitamente por un estatus (ej: "Anulada" o "En Vigor"), ese manda.
 		filters.Filters["estatus"] = status
 	} else if showAnuladas := queryParams.Get("show_anuladas"); showAnuladas == "true" {
-		// Si NO hay un estatus fijo seleccionado, pero el checkbox está activo ("true"),
-		// entonces filtramos para Ocultar las anuladas trayendo solo las que están "En Vigor".
 		filters.Filters["estatus"] = "En Vigor"
 	}
 
