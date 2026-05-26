@@ -338,7 +338,7 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 			COALESCE(COUNT(*), 0) as total,
 			COALESCE(COUNT(CASE WHEN p.estatus = 'En Vigor' THEN 1 END), 0) as activas,
 			COALESCE(COUNT(CASE WHEN p.estatus != 'En Vigor' THEN 1 END), 0) as inactivas,
-			COALESCE(COUNT(CASE WHEN ppc.next_payment <= CURRENT_DATE + INTERVAL '5 days' THEN 1 END), 0) as por_vencer,
+			COALESCE(COUNT(CASE WHEN ppc.next_payment <= CURRENT_DATE + INTERVAL '5 days' AND p.estatus != 'Anulada' THEN 1 END), 0) as por_vencer,
 			COALESCE(COUNT(CASE WHEN ppc.next_payment >= CURRENT_DATE + INTERVAL '5 days' AND ppl.paid_period IS NOT NULL THEN 1 END), 0) as cobertura_activa,
 			COALESCE(COUNT(CASE WHEN ppl.paid_period IS NULL THEN 1 END), 0) as sin_pago_registrado
 		FROM polizas p
@@ -419,7 +419,7 @@ func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
 	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid = $1`, agente_uuid).Scan(&agente_id)
 
 	rows, err := db.Client.Query(`
-		SELECT  p.poliza_uuid, a.agente_uuid, p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro,
+		SELECT  p.poliza_uuid p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro,
 				p.numpoliza, p.plan, p.tipo_seguro, p.addr_calle, p.addr_codigopostal, p.addr_ciudad, p.addr_colonia,
 				p.addr_estado, p.moneda, p.pais, p.email, p.telefono, ppc.next_payment, p.poliza_id
 		FROM polizas p
@@ -440,7 +440,7 @@ func ApiGetPoliza(w http.ResponseWriter, r *http.Request) {
 
 	var cobranza internal.GetItem_Poliza
 	for rows.Next() {
-		err := rows.Scan(&cobranza.PolizaUUID, &cobranza.AgenteUUID, &cobranza.DiaCobro,
+		err := rows.Scan(&cobranza.PolizaUUID, &cobranza.DiaCobro,
 			&cobranza.Estatus, &cobranza.FechaEmision, &cobranza.FormaPago, &cobranza.MedioCobro,
 			&cobranza.NumPoliza, &cobranza.Plan, &cobranza.TipoSeguro,
 			&cobranza.Direccion.Calle, &cobranza.Direccion.CodigoPostal, &cobranza.Direccion.Ciudad,
@@ -509,14 +509,21 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 	filters.PageSize = pageSize
 	filters.CurentPage = currentPage
 
-	if status := queryParams.Get("estatus"); status != "" {
-		filters.Filters["estatus"] = status
-	}
 	if nextDue := queryParams.Get("next_due"); nextDue != "" {
 		filters.Filters["next_due"] = nextDue
 	}
 	if numPoliza := queryParams.Get("numpoliza"); numPoliza != "" {
 		filters.Filters["numpoliza"] = numPoliza
+	}
+
+	// 💡 Fusionamos la lógica de estatus y show_anuladas ordenando prioridades:
+	if status := queryParams.Get("estatus"); status != "" {
+		// Si el usuario filtró explícitamente por un estatus (ej: "Anulada" o "En Vigor"), ese manda.
+		filters.Filters["estatus"] = status
+	} else if showAnuladas := queryParams.Get("show_anuladas"); showAnuladas == "true" {
+		// Si NO hay un estatus fijo seleccionado, pero el checkbox está activo ("true"),
+		// entonces filtramos para Ocultar las anuladas trayendo solo las que están "En Vigor".
+		filters.Filters["estatus"] = "En Vigor"
 	}
 
 	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid=$1`, userUUID).Scan(&filters.Agente_id)
@@ -526,7 +533,16 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseQuery := ` FROM polizas p JOIN agentes a ON p.agente_id = a.agente_id JOIN polizas_payments_conf ppc ON ppc.poliza_id=p.poliza_id WHERE a.agente_id=$1`
+	baseQuery := ` FROM polizas p
+		JOIN agentes a ON p.agente_id = a.agente_id
+		JOIN polizas_payments_conf ppc ON ppc.poliza_id=p.poliza_id
+		LEFT JOIN (
+			SELECT DISTINCT ON (poliza_id) poliza_id, paid_period
+			FROM polizas_payments_log
+			ORDER BY poliza_id, payment_log_id DESC
+		) ppl ON ppl.poliza_id = p.poliza_id
+		WHERE a.agente_id=$1`
+
 	args := []interface{}{filters.Agente_id}
 	argCount := 1
 
@@ -561,9 +577,13 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 		totalPages = 1
 	}
 
-	selectQuery := `SELECT p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago, p.medio_cobro, p.numpoliza, p.plan, p.tipo_seguro, p.addr_calle, p.addr_codigopostal, p.addr_ciudad, p.addr_colonia, p.addr_estado, ppc.next_payment, p.moneda, p.pais, p.telefono, p.email, p.suma_asegurada, p.last_modified, p.poliza_uuid` + baseQuery
+	selectQuery := `
+		SELECT p.poliza_id, p.dia_cobro, p.estatus, p.fecha_emision, p.forma_pago,
+			p.medio_cobro, p.numpoliza, p.plan, p.tipo_seguro, p.addr_calle,
+			p.addr_codigopostal, p.addr_ciudad, p.addr_colonia, p.addr_estado,
+			ppc.next_payment, p.moneda, p.pais, p.telefono, p.email, p.suma_asegurada,
+			p.last_modified, p.poliza_uuid, COALESCE(ppl.paid_period::text, '') as "payment_exist"` + baseQuery
 
-	// 💡 CORRECCIÓN AQUÍ: Se calculan dinámicamente los placeholders basándose en el argCount real actual
 	selectQuery += fmt.Sprintf(` ORDER BY ppc.next_payment ASC LIMIT $%d OFFSET $%d`, argCount+1, argCount+2)
 	args = append(args, filters.PageSize, offset)
 
@@ -576,25 +596,74 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var polizas []internal.GetItem_Poliza
+	var targetPolizaIDs []int
+
 	for rows.Next() {
 		var poliza internal.GetItem_Poliza
+		var dbPolizaID int
+
 		err := rows.Scan(
-			&poliza.DiaCobro, &poliza.Estatus, &poliza.FechaEmision, &poliza.FormaPago, &poliza.MedioCobro, &poliza.NumPoliza,
+			&dbPolizaID, &poliza.DiaCobro, &poliza.Estatus, &poliza.FechaEmision, &poliza.FormaPago, &poliza.MedioCobro, &poliza.NumPoliza,
 			&poliza.Plan, &poliza.TipoSeguro, &poliza.Direccion.Calle, &poliza.Direccion.CodigoPostal, &poliza.Direccion.Ciudad,
 			&poliza.Direccion.Colonia, &poliza.Direccion.Estado, &poliza.SiguientePago, &poliza.Moneda, &poliza.Pais,
 			&poliza.Telefono, &poliza.Email, &poliza.SumaAsegurada, &poliza.UltimaModificacion, &poliza.PolizaUUID,
+			&poliza.PaymentExist,
 		)
 		if err != nil {
 			rows.Close()
 			services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
 			return
 		}
+
+		poliza.Asegurados = []internal.Asegurado{}
+
 		polizas = append(polizas, poliza)
+		targetPolizaIDs = append(targetPolizaIDs, dbPolizaID)
 	}
 
 	if polizas == nil {
 		polizas = []internal.GetItem_Poliza{}
 	}
+
+	// 💡 PROCESO DE INYECCIÓN DE ASEGURADOS
+	if len(targetPolizaIDs) > 0 {
+		aseguradosMapa := make(map[string][]internal.Asegurado)
+
+		asegurados_rows, err := db.Client.Query(`
+			SELECT a.nombre_completo, a.birthday, a.is_principal, p.numpoliza
+			FROM asegurados a
+			JOIN polizas p ON a.poliza_id = p.poliza_id
+			WHERE p.poliza_id = ANY($1)`, pq.Array(targetPolizaIDs))
+		if err != nil {
+			services.NewLogger().ErrorMessage(err.Error())
+			services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+			return
+		}
+		defer asegurados_rows.Close()
+
+		for asegurados_rows.Next() {
+			var asegurado_data internal.Asegurado
+			var numPolizaKey string
+
+			err := asegurados_rows.Scan(
+				&asegurado_data.Nombre, &asegurado_data.Cumpleanos, &asegurado_data.IsPrincipal, &numPolizaKey,
+			)
+			if err != nil {
+				asegurados_rows.Close()
+				services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+				return
+			}
+			aseguradosMapa[numPolizaKey] = append(aseguradosMapa[numPolizaKey], asegurado_data)
+		}
+
+		for i := range polizas {
+			if listaAsegurados, existe := aseguradosMapa[polizas[i].NumPoliza]; existe {
+				polizas[i].Asegurados = listaAsegurados
+			}
+		}
+	}
+
+	// 💡 RESPUESTA LIMPIA: Ya no necesitamos mandar el campo independiente "asegurados" en la respuesta.
 	response := map[string]interface{}{"items": polizas, "total": totalRecords, "pages": totalPages}
 	services.HandleResponseSuccessWithData(response, w)
 }

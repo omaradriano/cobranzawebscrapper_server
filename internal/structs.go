@@ -64,12 +64,12 @@ type GetItem_Poliza struct {
 	Telefono           string      `json:"telefono"`
 	SumaAsegurada      string      `json:"suma_asegurada"`
 	UltimaModificacion string      `json:"last_modified"`
+	PaymentExist       string      `json:"payment_exist"`
 
 	Direccion Address `json:"direccion"`
 
 	SiguientePago string `json:"next_payment"`
 	PolizaUUID    string `json:"poliza_uuid"`
-	AgenteUUID    string `json:"agente_uuid"`
 }
 
 type GetItem_Poliza_Filters struct {
