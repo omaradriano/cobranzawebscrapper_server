@@ -156,7 +156,8 @@ func EnableCORS(next http.Handler) http.Handler {
 		if origin == "http://localhost:5173" ||
 			origin == "https://www.goagent.com.mx" ||
 			origin == "https://goagent.com.mx" ||
-			origin == "chrome-extension://jgahlmealgaocieaemladngafmbbfgdo" {
+			origin == "chrome-extension://jgahlmealgaocieaemladngafmbbfgdo" ||
+			origin == "chrome-extension://acihafkligkgjbhmbgaidkackhojbokh" {
 
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
