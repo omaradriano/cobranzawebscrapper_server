@@ -81,7 +81,8 @@ func ApiCheckPasswordExist(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Methods", "GET")
+	// 💡 CORRECCIÓN 1: El método correcto para recibir un Body JSON es POST (o dejar que tu middleware maneje CORS)
+	w.Header().Set("Access-Control-Allow-Methods", "POST")
 
 	fmt.Println("Request from ApiAuthenticateUser")
 	fmt.Printf("----------------------------------------\n")
@@ -96,10 +97,8 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	/**
-	 *
-		* INICIA SOLICITUD A GOOGLE PARA VERIFICAR AL USUARIO QUE INTENTA LOGGEAR
-	*/
-
+	 * INICIA SOLICITUD A GOOGLE PARA VERIFICAR AL USUARIO QUE INTENTA LOGGEAR
+	 */
 	client := &http.Client{
 		Timeout: time.Second * 10,
 	}
@@ -110,7 +109,7 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 
 	req, err := http.NewRequest(method, url, payload)
 	if err != nil {
-		fmt.Println("Error decoding JSON:", err)
+		fmt.Println("Error al armar la solicitud:", err)
 		services.HandleResponseError(http.StatusBadRequest, "Error al armar la solicitud para api google", w)
 		return
 	}
@@ -126,11 +125,9 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	var google_user_response internal.Google_User_Response
-	var user_uuid string
-
 	err = json.NewDecoder(resp.Body).Decode(&google_user_response)
 	if err != nil {
-		fmt.Println("Error decoding JSON:", err)
+		fmt.Println("Error decoding Google response JSON:", err)
 		services.HandleResponseError(http.StatusBadRequest, "No existe respuesta de google_user_response", w)
 		return
 	}
@@ -138,72 +135,74 @@ func ApiAuthenticateUserByGoogle(w http.ResponseWriter, r *http.Request) {
 	/**
 	 * INICIA OPERACION PARA LOGGEAR O REGISTRAR AL USUARIO EN BASE DE DATOS
 	 */
-
-	rows, err := db.Client.Query(
-		`
-			SELECT a.email, a.agente_uuid, a.no_agente, a.role, ac.nombre as aseguradora, ac.aseguradora_id as aseguradora_id
-			FROM agentes a
-			JOIN aseguradoras_conf ac
-			ON ac.aseguradora_id = a.aseguradora_id
-			WHERE email = $1`,
-		google_user_response.Email,
-	)
-	if err != nil {
-		services.HandleResponseError(http.StatusInternalServerError, "No se ha podido hacer peticion de datos", w)
-		return
-	}
-	defer rows.Close()
-
-	// Esta variable va a identificar que haya registros en el query realizado
-	found := false
-
 	var email string
+	var user_uuid string
 	var no_agente string
 	var role string
 	var aseguradora_nombre string
 	var aseguradora_id string
-	for rows.Next() {
-		if err := rows.Scan(&email, &user_uuid, &no_agente, &role, &aseguradora_nombre, &aseguradora_id); err != nil {
-			fmt.Println(err.Error())
-			services.HandleResponseError(http.StatusInternalServerError, "Error al leer datos", w)
+
+	// Usamos QueryRow ya que el email es único y solo esperamos un registro o ninguno
+	err = db.Client.QueryRow(
+		`
+			SELECT a.email, a.agente_uuid, a.no_agente, a.role, ac.nombre as aseguradora, ac.aseguradora_id as aseguradora_id
+			FROM agentes a
+			JOIN aseguradoras_conf ac ON ac.aseguradora_id = a.aseguradora_id
+			WHERE a.email = $1`,
+		google_user_response.Email,
+	).Scan(&email, &user_uuid, &no_agente, &role, &aseguradora_nombre, &aseguradora_id)
+
+	found := true
+	if err != nil {
+		if err == sql.ErrNoRows {
+			found = false
+		} else {
+			fmt.Println("Error consultando base de datos:", err)
+			services.HandleResponseError(http.StatusInternalServerError, "No se ha podido hacer peticion de datos", w)
 			return
 		}
-		found = true
-	}
-
-	if err := rows.Err(); err != nil {
-		services.HandleResponseError(http.StatusInternalServerError, "Error en iteración de filas", w)
-		return
 	}
 
 	var ServerResponse internal.Server_Response_With_Token
-
-	ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, email, no_agente, role, aseguradora_nombre, aseguradora_id)
-	if err != nil {
-		services.HandleResponseError(http.StatusInternalServerError, "Error al obtener jwt token", w)
-	}
-
-	// fmt.Println(google_user_response)
 	ServerResponse.Email = google_user_response.Email
 
 	if !found {
-		/**
-		 * El usuario no existe por lo que hay que proceder a registro del mismo
-		 */
 		fmt.Println("No se encontró usuario, hay que crear uno nuevo")
-		createUserQuery := `INSERT INTO agentes (email, is_verified, no_agente) VALUES ($1, true, '000000')`
-		_, err := db.Client.Exec(createUserQuery, google_user_response.Email)
+
+		createUserQuery := `
+			INSERT INTO agentes (email, is_verified, no_agente, role, aseguradora_id)
+			VALUES ($1, true, '000000', 'Agente', 1)
+			RETURNING agente_uuid, role, no_agente`
+
+		err = db.Client.QueryRow(createUserQuery, google_user_response.Email).Scan(&user_uuid, &role, &no_agente)
 		if err != nil {
 			fmt.Println("Error al insertar un nuevo usuario con validacion google:", err)
-			services.HandleResponseError(409, "No se ha podido crear un nuevo usuario por autenticacion google", w)
+			services.HandleResponseError(http.StatusConflict, "No se ha podido crear un nuevo usuario por autenticacion google", w)
 			return
 		}
+
+		aseguradora_nombre = "Por asignar"
+		aseguradora_id = "1"
+
+		ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, ServerResponse.Email, no_agente, role, aseguradora_nombre, aseguradora_id)
+		if err != nil {
+			services.HandleResponseError(http.StatusInternalServerError, "Error al obtener jwt token para nuevo usuario", w)
+			return
+		}
+
 		services.HandleResponseSuccessWithData(ServerResponse, w)
+
 	} else {
 		/**
-		 * El usuario si existe por lo que se genera token de la sesión
+		 * El usuario sí existe, generamos el token con los datos extraídos de la BD
 		 */
 		fmt.Println("Se encontró usuario, hay que generar el token de sesion")
+
+		ServerResponse.JWT_Token, err = services.GenerateJWT(user_uuid, email, no_agente, role, aseguradora_nombre, aseguradora_id)
+		if err != nil {
+			services.HandleResponseError(http.StatusInternalServerError, "Error al obtener jwt token", w)
+			return
+		}
 
 		w.Header().Set("Authorization", fmt.Sprintf(`Bearer %s`, ServerResponse.JWT_Token))
 		services.HandleResponseSuccessWithData(ServerResponse, w)
@@ -533,53 +532,54 @@ func ApiResetPasswordMail(w http.ResponseWriter, r *http.Request) {
 
 func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 	/*
-		 * http://127.0.0.1:3006/v1/auth/verifyaccount
-			* body:
-			* {
-			* 	"token": string,
-			* 	"password":string
-			* 	"insurance": string
-			* }
-	*/
+	 * 💡 Flujo corregido: El usuario llega por GET desde un enlace de correo.
+	 * http://127.0.0.1:3006/v1/auth/verifyaccount?token=XYZ
+	 */
+
+	w.Header().Set("Access-Control-Allow-Methods", "GET")
 
 	fmt.Println("Request from ApiVerifyAccount")
 	fmt.Printf("----------------------------------------\n")
 
-	var token_already_confirmed bool
 	token := r.URL.Query().Get("token")
-
-	fmt.Println("Iniciando validacion del token para confirmar la cuenta")
-
-	rows, err := db.Client.Query(`SELECT is_verified FROM agentes WHERE verification_token = $1`, token)
-	if err != nil {
-		fmt.Println("No se han podido recuperar datos de verification_token", err)
-		services.HandleResponseError(http.StatusBadRequest, "No se han podido recuperar datos de verification_token", w)
+	if token == "" {
+		fmt.Println("Token no proporcionado en la URL")
+		redirectUrl := fmt.Sprintf(`http://%s/auth/verifiedaccount?status=invalid`, env.Envs.WebAppURL)
+		http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
 		return
 	}
 
-	for rows.Next() {
-		if err := rows.Scan(&token_already_confirmed); err != nil {
-			fmt.Println(err.Error())
-			services.HandleResponseError(http.StatusInternalServerError, "Error al leer datos", w)
-			return
-		}
-	}
-
-	fmt.Println(token_already_confirmed)
-
-	if token_already_confirmed == true {
-		fmt.Println("La cuenta ya ha sido confirmada con anterioridad")
-		services.HandleResponseError(http.StatusConflict, "La cuenta ya ha sido confirmada con anterioridad", w)
-		return
-	}
-
-	fmt.Println(token)
+	fmt.Println("Iniciando validación del token para confirmar la cuenta")
 
 	user_uuid, err := services.ValidateConfirmationToken(token)
 	if err != nil {
-		fmt.Println(err.Error())
-		// services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
-		redirectUrl := fmt.Sprintf(`http://%s/auth/verifiedaccount?status=invalid`, env.Envs.WebAppURL)
+		fmt.Println("Error validando la firma del token:", err.Error())
+		redirectUrl := fmt.Sprintf(`%s/auth/verifiedaccount?status=invalid`, env.Envs.WebAppURL)
+		http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
+		return
+	}
+
+	var is_verified bool
+	err = db.Client.QueryRow(
+		`SELECT is_verified FROM agentes WHERE verification_token = $1 AND agente_uuid = $2`,
+		token, user_uuid,
+	).Scan(&is_verified)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			fmt.Println("El token no existe en la base de datos o ya fue removido")
+			redirectUrl := fmt.Sprintf(`%s/auth/verifiedaccount?status=invalid`, env.Envs.WebAppURL)
+			http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
+			return
+		}
+
+		fmt.Println("Error consultando la base de datos:", err)
+		services.HandleResponseError(http.StatusInternalServerError, "Error interno del servidor", w)
+		return
+	}
+
+	if is_verified {
+		fmt.Println("La cuenta ya ha sido confirmada con anterioridad")
+		redirectUrl := fmt.Sprintf(`%s/auth/verifiedaccount?status=already_confirmed`, env.Envs.WebAppURL)
 		http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
 		return
 	}
@@ -591,15 +591,13 @@ func ApiVerifyAccount(w http.ResponseWriter, r *http.Request) {
 			verification_token = NULL
 		WHERE agente_uuid = $1`, user_uuid)
 	if err != nil {
-		fmt.Println(err.Error())
-		services.HandleResponseError(http.StatusInternalServerError, fmt.Sprintf("No se ha podido verificar la cuenta: %s", err.Error()), w)
+		fmt.Println("Error al actualizar el estado de verificación:", err.Error())
+		services.HandleResponseError(http.StatusInternalServerError, "No se ha podido verificar la cuenta debido a un error interno", w)
 		return
 	}
 
-	fmt.Println("Se ha verificado la cuenta")
+	fmt.Println("Se ha verificado la cuenta con éxito")
 
 	redirectUrl := fmt.Sprintf(`http://%s/auth/verifiedaccount?status=success`, env.Envs.WebAppURL)
-
 	http.Redirect(w, r, redirectUrl, http.StatusSeeOther)
-	return
 }

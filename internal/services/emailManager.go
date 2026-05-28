@@ -37,10 +37,7 @@ func SendMail(destination, confimation_token, email_type string) error {
 		To:   []string{destination},
 		Html: fmt.Sprintf(`<a href="%s/auth/%s?token=%s&setpasswordmode=resetpassword">%s c:</a>`,
 			destination_router, email_type_value, confimation_token, displayMessage),
-		Subject: "Confirmación de cuenta para polizas-tracker",
-		// Cc:      []string{"cc@example.com"},
-		// Bcc:     []string{"bcc@example.com"},
-		// ReplyTo: "replyto@example.com",
+		Subject: "Confirmación de cuenta para GoAgent",
 	}
 
 	sent, err := client.Emails.Send(params)
@@ -60,10 +57,7 @@ func SendCustomMail(destination, message string) error {
 		From:    "Acme <onboarding@resend.dev>",
 		To:      []string{destination},
 		Html:    fmt.Sprintf(`<p>%s</p>`, message),
-		Subject: "Confirmación de cambio de contraseña",
-		// Cc:      []string{"cc@example.com"},
-		// Bcc:     []string{"bcc@example.com"},
-		// ReplyTo: "replyto@example.com",
+		Subject: "Confirmación de cambio de contraseña para GoAgent",
 	}
 
 	sent, err := client.Emails.Send(params)
