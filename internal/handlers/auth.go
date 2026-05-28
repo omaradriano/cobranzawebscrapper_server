@@ -453,7 +453,7 @@ func ApiRegisterUser(w http.ResponseWriter, r *http.Request) {
 	 * Aqui se debe de enviar el correo con el token de confirmación
 	 */
 
-	err = services.SendMail("oadrian38@gmail.com", verification_token, "Register")
+	err = services.SendMail(asegurador_data.Email, verification_token, "Register")
 	if err != nil {
 		fmt.Println(err.Error())
 		services.HandleResponseError(http.StatusInternalServerError, fmt.Sprintf("No se ha podido enviar el correo: %s", err.Error()), w)
@@ -520,7 +520,7 @@ func ApiResetPasswordMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = services.SendMail("oadrian38@gmail.com", verification_token, "ResetPassword")
+	err = services.SendMail(reset_pass_credentials.Email, verification_token, "ResetPassword")
 	if err != nil {
 		fmt.Println("No se ha podido enviar el correo de restablecimiento", err)
 		services.HandleResponseError(http.StatusInternalServerError, "No se ha podido enviar el correo de restablecimiento", w)
