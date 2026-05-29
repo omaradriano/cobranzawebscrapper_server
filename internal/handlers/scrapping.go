@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
@@ -223,6 +224,41 @@ func ApiPostPolizas(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Println("Error en bulk insert de asegurados:", err)
 			services.HandleResponseError(http.StatusConflict, "No se ha podido realizar la inserción de asegurados", w)
+			return
+		}
+	}
+
+	var polizaNums []string
+	var fechasPago []time.Time
+
+	for _, item := range CobranzaItemsToUpload.Payload {
+		if item.UltimoPago != "" && item.UltimoPago != "null" {
+			parts := strings.Split(item.UltimoPago, "-")
+			if len(parts) == 3 {
+				year, _ := strconv.Atoi(parts[0])
+				month, _ := strconv.Atoi(parts[1])
+				day, _ := strconv.Atoi(parts[2])
+
+				fecha := time.Date(year, time.Month(month), day, 12, 0, 0, 0, time.UTC)
+
+				polizaNums = append(polizaNums, item.NumPoliza)
+				fechasPago = append(fechasPago, fecha)
+			}
+		}
+	}
+
+	if len(polizaNums) > 0 {
+		query := `
+				UPDATE polizas_payments_conf ppc
+				SET next_payment = data.fecha
+				FROM UNNEST($1::text[], $2::timestamptz[]) AS data(num, fecha)
+				JOIN polizas p ON p.numpoliza = data.num
+				WHERE p.poliza_id = ppc.poliza_id;`
+
+		_, err = tx.Exec(query, pq.Array(polizaNums), pq.Array(fechasPago))
+		if err != nil {
+			fmt.Println("Error en bulk update de pagos:", err)
+			services.HandleResponseError(http.StatusConflict, "Error al actualizar pagos", w)
 			return
 		}
 	}
@@ -722,3 +758,27 @@ func ApiGetBirthdates(w http.ResponseWriter, r *http.Request) {
 
 	services.HandleResponseSuccessWithData(asegurados_birthdates, w)
 }
+
+// func ApiPatchPoliza(w http.ResponseWriter, r *http.Request) {
+// 	services.NewLogger().OriginAdvice("ApiGetDetails")
+
+// 	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
+
+// 	fmt.Println(userUUID)
+
+// 	var patch_poliza internal.PatchPaymentItem_Poliza
+
+// 	err := json.NewDecoder(r.Body).Decode(&patch_poliza)
+// 	if err != nil {
+// 		fmt.Println(err.Error())
+// 		services.HandleResponseError(http.StatusInternalServerError, err.Error(), w)
+// 		return
+// 	}
+
+// 	fmt.Println(patch_poliza.DiaCobro)
+// 	fmt.Println(patch_poliza.Estatus)
+// 	fmt.Println(patch_poliza.FormaPago)
+// 	fmt.Println(patch_poliza.NumPoliza)
+
+// 	services.HandleResponseSuccess(w)
+// }

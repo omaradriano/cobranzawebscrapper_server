@@ -54,7 +54,7 @@ func SendCustomMail(destination, message string) error {
 	client := resend.NewClient(CLIENT_TOKEN)
 
 	params := &resend.SendEmailRequest{
-		From:    "Acme <onboarding@resend.dev>",
+		From:    "notificaciones@goagent.com.mx",
 		To:      []string{destination},
 		Html:    fmt.Sprintf(`<p>%s</p>`, message),
 		Subject: "Confirmación de cambio de contraseña para GoAgent",

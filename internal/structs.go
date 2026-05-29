@@ -29,6 +29,7 @@ type PostItem_Poliza struct {
 	Pais          string      `json:"pais"`
 	Email         string      `json:"email"`
 	Moneda        string      `json:"moneda"`
+	UltimoPago    string      `json:"ultimo_pago"`
 }
 
 type Asegurado struct {
@@ -77,6 +78,13 @@ type GetItem_Poliza_Filters struct {
 	Filters    map[string]string `json:"filters"`
 	PageSize   int               `json:"pageSize"`
 	CurentPage int               `json:"currentPage"`
+}
+
+type PatchPaymentItem_Poliza struct {
+	NumPoliza string `json:"numpoliza"`
+	Estatus   string `json:"estatus"`
+	DiaCobro  int    `json:"dia_cobro"`
+	FormaPago string `json:"forma_pago"`
 }
 
 type HttpError struct {

@@ -96,6 +96,10 @@ var routes = []route{
 	newRoute("GET", "/v1/auth/checkSession", func(w http.ResponseWriter, r *http.Request) {
 		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiCheckSession)).ServeHTTP(w, r)
 	}),
+	/** Actualización de los datos de una poliza */
+	// newRoute("PATCH", "/v1/scrapping/poliza", func(w http.ResponseWriter, r *http.Request) {
+	// 	middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiPatchPoliza)).ServeHTTP(w, r)
+	// }),
 
 	/** Reinicio de contraseña (WebApp) */
 	newRoute("POST", "/v1/auth/setpassword", handlers.ApiSetCredentials),
