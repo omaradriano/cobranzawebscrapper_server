@@ -26,6 +26,9 @@ type Config struct {
 
 	MailDestinationWeb    string
 	MailDestinationServer string
+
+	StripeSecret      string
+	StripeWebhookSign string
 }
 
 var Envs *Config
@@ -51,6 +54,10 @@ func LoadConfig() {
 
 		MailDestinationWeb:    getEnv("MAIL_DESTINATION_WEB", ""),
 		MailDestinationServer: getEnv("MAIL_DESTINATION_SERVER", ""),
+
+		StripeSecret: getEnv("STRIPE_SECRET", ""),
+
+		StripeWebhookSign: getEnv("STRIPE_WEBHOOK_SECRET", ""),
 	}
 
 	valueof := reflect.ValueOf(Envs).Elem()

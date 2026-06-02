@@ -7,13 +7,8 @@ import (
 	"github.com/resend/resend-go/v3"
 )
 
-const (
-	CLIENT_TOKEN string = "re_UapR6ViR_34ED5n3Cy71Mzf6NrEcpuqot"
-)
-
-// re_UapR6ViR_34ED5n3Cy71Mzf6NrEcpuqot
 func SendMail(destination, confimation_token, email_type string) error {
-	client := resend.NewClient(CLIENT_TOKEN)
+	client := resend.NewClient(env.Envs.ResendToken)
 	var email_type_value string
 	var displayMessage string
 	// var destination string
@@ -51,7 +46,7 @@ func SendMail(destination, confimation_token, email_type string) error {
 }
 
 func SendCustomMail(destination, message string) error {
-	client := resend.NewClient(CLIENT_TOKEN)
+	client := resend.NewClient(env.Envs.ResendToken)
 
 	params := &resend.SendEmailRequest{
 		From:    "notificaciones@goagent.com.mx",

@@ -8,11 +8,16 @@ import (
 	"github.com/omaradriano/cobranzawebscrapper_server/configs"
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
 	"github.com/omaradriano/cobranzawebscrapper_server/env"
+	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
+	"github.com/stripe/stripe-go/v74"
 )
 
 func main() {
 	env.LoadConfig()
+	middlewares.JwtSecret = env.Envs.JWTSecret
+	stripe.Key = env.Envs.StripeSecret
+
 	dbConn, err := db.CreateDbConn()
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())

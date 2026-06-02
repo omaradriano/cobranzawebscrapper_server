@@ -12,7 +12,7 @@ import (
 
 type contextKey string
 
-var JwtSecret = `perryelortitorico1389`
+var JwtSecret string
 
 const (
 	UserIDKey       contextKey = "uuid"

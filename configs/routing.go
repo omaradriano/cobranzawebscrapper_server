@@ -75,6 +75,20 @@ var routes = []route{
 		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetBirthdates)).ServeHTTP(w, r)
 	}),
 
+	// Payment -----------------------------
+	/**
+	 * Generacion de pago de Stripe
+	 */
+	newRoute("POST", "/v1/api/create_suscription_payment", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.CreateStripeCheckoutSession)).ServeHTTP(w, r)
+	}),
+
+	newRoute("POST", "/v1/api/stripe_webhook_handler", handlers.StripeWebhookHandler),
+
+	newRoute("GET", "/v1/api/subscription_status", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetSubscriptionStatus)).ServeHTTP(w, r)
+	}),
+
 	// Authentication ----------------------------
 	//
 	/** Llamada a autenticación con google */
