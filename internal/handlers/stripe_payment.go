@@ -36,7 +36,7 @@ func CreateStripeCheckoutSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	priceID := "price_1TeQ9sLU4Gfljtd5qQCKmVwx"
+	priceID := "price_1TeQlIL9oooL88YoArkzlVkF"
 
 	params := &stripe.CheckoutSessionParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
