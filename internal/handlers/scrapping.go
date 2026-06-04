@@ -397,6 +397,18 @@ func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = db.Client.QueryRow(`
+		SELECT COUNT(*)
+		FROM polizas p
+		JOIN agentes a ON p.agente_id = a.agente_id
+		WHERE a.agente_uuid = $1
+		AND p.last_modified >= NOW() - INTERVAL '7 days'`, userUUID).Scan(&details.Recientes)
+	if err != nil {
+		services.NewLogger().ErrorMessage(err.Error())
+		services.HandleResponseError(http.StatusInternalServerError, "Error al recopilar recientes", w)
+		return
+	}
+
 	services.HandleResponseSuccessWithData(details, w)
 }
 
@@ -561,6 +573,9 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 		filters.Filters["estatus"] = "En Vigor"
 	}
 
+	nombreAsegurado := queryParams.Get("nombre_asegurado")
+	recent := queryParams.Get("recent") == "true"
+
 	err := db.Client.QueryRow(`SELECT agente_id FROM agentes WHERE agente_uuid=$1`, userUUID).Scan(&filters.Agente_id)
 	if err != nil {
 		services.NewLogger().ErrorMessage(err.Error())
@@ -568,15 +583,20 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseQuery := ` FROM polizas p
+	joinClause := ` FROM polizas p
 		JOIN agentes a ON p.agente_id = a.agente_id
 		JOIN polizas_payments_conf ppc ON ppc.poliza_id=p.poliza_id
 		LEFT JOIN (
 			SELECT DISTINCT ON (poliza_id) poliza_id, paid_period
 			FROM polizas_payments_log
 			ORDER BY poliza_id, payment_log_id DESC
-		) ppl ON ppl.poliza_id = p.poliza_id
-		WHERE a.agente_id=$1`
+		) ppl ON ppl.poliza_id = p.poliza_id`
+
+	if nombreAsegurado != "" {
+		joinClause += ` JOIN asegurados a_filter ON a_filter.poliza_id = p.poliza_id AND a_filter.is_principal = true`
+	}
+
+	baseQuery := joinClause + ` WHERE a.agente_id=$1`
 
 	args := []interface{}{filters.Agente_id}
 	argCount := 1
@@ -596,6 +616,12 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 			baseQuery += fmt.Sprintf(" AND p.%s=$%d", columna, argCount)
 			args = append(args, valor)
 		}
+	}
+
+	if nombreAsegurado != "" {
+		argCount++
+		baseQuery += fmt.Sprintf(` AND LOWER(a_filter.nombre_completo) LIKE LOWER($%d)`, argCount)
+		args = append(args, "%"+nombreAsegurado+"%")
 	}
 
 	var totalRecords int
@@ -619,7 +645,11 @@ func ApiGetPolizas(w http.ResponseWriter, r *http.Request) {
 			ppc.next_payment, p.moneda, p.pais, p.telefono, p.email, p.suma_asegurada,
 			p.last_modified, p.poliza_uuid, COALESCE(ppl.paid_period::text, '') as "payment_exist"` + baseQuery
 
-	selectQuery += fmt.Sprintf(` ORDER BY ppc.next_payment ASC LIMIT $%d OFFSET $%d`, argCount+1, argCount+2)
+	orderBy := `ppc.next_payment ASC`
+	if recent {
+		orderBy = `p.last_modified DESC`
+	}
+	selectQuery += fmt.Sprintf(` ORDER BY %s LIMIT $%d OFFSET $%d`, orderBy, argCount+1, argCount+2)
 	args = append(args, filters.PageSize, offset)
 
 	rows, err := db.Client.Query(selectQuery, args...)

@@ -89,6 +89,10 @@ var routes = []route{
 		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiGetSubscriptionStatus)).ServeHTTP(w, r)
 	}),
 
+	newRoute("POST", "/v1/api/cancel_subscription", func(w http.ResponseWriter, r *http.Request) {
+		middlewares.JWTMiddleware(http.HandlerFunc(handlers.ApiCancelSubscription)).ServeHTTP(w, r)
+	}),
+
 	// Authentication ----------------------------
 	//
 	/** Llamada a autenticación con google */
