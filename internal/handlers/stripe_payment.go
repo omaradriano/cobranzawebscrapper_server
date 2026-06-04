@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
+	"github.com/omaradriano/cobranzawebscrapper_server/env"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
@@ -35,7 +36,7 @@ func CreateStripeCheckoutSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	priceID := "price_1TcWxRLU4Gfljtd5YubSNHYO"
+	priceID := "price_1TeQ9sLU4Gfljtd5qQCKmVwx"
 
 	params := &stripe.CheckoutSessionParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
@@ -48,8 +49,8 @@ func CreateStripeCheckoutSession(w http.ResponseWriter, r *http.Request) {
 				Quantity: stripe.Int64(1),
 			},
 		},
-		SuccessURL: stripe.String("http://localhost:5173/success_payment"),
-		CancelURL:  stripe.String("http://localhost:5173/pricing"),
+		SuccessURL: stripe.String(fmt.Sprintf(`http://%s/success_payment`, env.Envs.StripeRedirectUrl)),
+		CancelURL:  stripe.String(fmt.Sprintf(`http://%s/pricing`, env.Envs.StripeRedirectUrl)),
 		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
 			Metadata: map[string]string{
 				"agente_uuid": agente_uuid,

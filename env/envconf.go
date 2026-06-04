@@ -29,6 +29,7 @@ type Config struct {
 
 	StripeSecret      string
 	StripeWebhookSign string
+	StripeRedirectUrl string
 }
 
 var Envs *Config
@@ -58,6 +59,8 @@ func LoadConfig() {
 		StripeSecret: getEnv("STRIPE_SECRET", ""),
 
 		StripeWebhookSign: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+
+		StripeRedirectUrl: getEnv("STRIPE_REDIRECT_URL", ""),
 	}
 
 	valueof := reflect.ValueOf(Envs).Elem()
