@@ -754,17 +754,24 @@ func ApiGetBirthdates(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Client.Query(`
 		WITH birthday_calc AS (
-			SELECT a.nombre_completo, a.birthday, p.numpoliza,
-				MAKE_DATE(EXTRACT(YEAR FROM NOW())::int, EXTRACT(MONTH FROM birthday)::int, EXTRACT(DAY FROM birthday)::int)::timestamp AS has_current_year_birthday
-			FROM asegurados a
-			JOIN polizas p ON p.poliza_id = a.poliza_id
-			JOIN agentes ag ON ag.agente_id = p.agente_id
-			WHERE ag.agente_id = $1
+		    SELECT a.nombre_completo, a.birthday, p.numpoliza,
+		        MAKE_DATE(EXTRACT(YEAR FROM NOW())::int, EXTRACT(MONTH FROM birthday)::int, EXTRACT(DAY FROM birthday)::int)::timestamp AS has_current_year_birthday
+		    FROM asegurados a
+		    JOIN polizas p ON p.poliza_id = a.poliza_id
+		    JOIN agentes ag ON ag.agente_id = p.agente_id
+		    WHERE ag.agente_id = 129
+		),
+		distinct_birthdays AS (
+		    -- Aquí unificamos por nombre
+		    SELECT DISTINCT ON (nombre_completo)
+		        nombre_completo,
+		        CASE WHEN has_current_year_birthday < NOW() THEN has_current_year_birthday + INTERVAL '1 year' ELSE has_current_year_birthday END AS next_birthday,
+		        numpoliza
+		    FROM birthday_calc
+		    ORDER BY nombre_completo, next_birthday ASC
 		)
-		SELECT nombre_completo,
-			CASE WHEN has_current_year_birthday < NOW() THEN has_current_year_birthday + INTERVAL '1 year' ELSE has_current_year_birthday END AS next_birthday,
-			numpoliza
-		FROM birthday_calc
+		SELECT nombre_completo, next_birthday, numpoliza
+		FROM distinct_birthdays
 		ORDER BY next_birthday ASC;
 	`, agente_id)
 	if err != nil {
