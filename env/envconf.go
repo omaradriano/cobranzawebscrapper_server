@@ -30,6 +30,7 @@ type Config struct {
 	StripeSecret      string
 	StripeWebhookSign string
 	StripeRedirectUrl string
+	StripePriceID     string
 }
 
 var Envs *Config
@@ -61,6 +62,8 @@ func LoadConfig() {
 		StripeWebhookSign: getEnv("STRIPE_WEBHOOK_SECRET", ""),
 
 		StripeRedirectUrl: getEnv("STRIPE_REDIRECT_URL", ""),
+
+		StripePriceID: getEnv("STRIPE_PRICE_ID", ""),
 	}
 
 	valueof := reflect.ValueOf(Envs).Elem()
@@ -75,7 +78,7 @@ func LoadConfig() {
 		field := typeof.Field(i)
 		value := valueof.Field(i)
 		if fmt.Sprintf("%s", value) == "" {
-			log.Fatalf("Falta una variable de entorno. Verificar: %s", field)
+			log.Fatalf("Falta una variable de entorno. Verificar: %s", field.Name)
 		}
 	}
 }

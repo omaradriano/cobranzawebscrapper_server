@@ -3,25 +3,30 @@ package services
 import (
 	"log"
 	"os"
+	"sync"
 )
 
 type CustomLogger struct {
-	*log.Logger // Embebemos el logger estándar
+	*log.Logger
 }
 
-func NewLogger() *CustomLogger {
-	return &CustomLogger{
-		Logger: log.New(os.Stdout, "APP: ", log.LstdFlags),
-	}
+var (
+	Log  *CustomLogger
+	once sync.Once
+)
+
+func init() {
+	once.Do(func() {
+		Log = &CustomLogger{
+			Logger: log.New(os.Stdout, "APP: ", log.LstdFlags),
+		}
+	})
 }
 
-// Definimos el método con Pointer Receiver (*)
 func (cl *CustomLogger) OriginAdvice(msg string) {
 	cl.Printf(`Request from %s`, msg)
-	// cl.Println(`----------------------------------------`)
 }
 
 func (cl *CustomLogger) ErrorMessage(msg string) {
 	cl.Printf(`Error %s`, msg)
-	// cl.Println(`----------------------------------------`)
 }

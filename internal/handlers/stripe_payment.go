@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 
-	"github.com/omaradriano/cobranzawebscrapper_server/db"
 	"github.com/omaradriano/cobranzawebscrapper_server/env"
-	"github.com/omaradriano/cobranzawebscrapper_server/internal"
+	"github.com/omaradriano/cobranzawebscrapper_server/internal/dto"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
 	"github.com/stripe/stripe-go/v74"
@@ -36,7 +34,7 @@ func CreateStripeCheckoutSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	priceID := "price_1TeQlIL9oooL88YoArkzlVkF"
+	priceID := env.Envs.StripePriceID
 
 	params := &stripe.CheckoutSessionParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
@@ -80,17 +78,19 @@ func StripeWebhookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	endpointSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
+	endpointSecret := env.Envs.StripeWebhookSign
 	signatureHeader := r.Header.Get("Stripe-Signature")
 
 	event, err := webhook.ConstructEventWithOptions(payload, signatureHeader, endpointSecret,
 		webhook.ConstructEventOptions{IgnoreAPIVersionMismatch: true},
 	)
 	if err != nil {
-		services.NewLogger().ErrorMessage("Firma del Webhook inválida: " + err.Error())
+		services.Log.ErrorMessage("Firma del Webhook inválida: " + err.Error())
 		services.HandleResponseError(http.StatusBadRequest, "Firma inválida", w)
 		return
 	}
+
+	ctx := r.Context()
 
 	switch event.Type {
 
@@ -117,40 +117,30 @@ func StripeWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			subscriptionID = stripeSession.Subscription.ID
 		}
 
-		// Guardar is_subscribed y stripe_subscription_id
-		if _, err = db.Client.Exec(
-			`UPDATE agentes SET is_subscribed = true, stripe_subscription_id = $1 WHERE agente_uuid = $2`,
-			subscriptionID, agenteUUID,
-		); err != nil {
-			services.NewLogger().ErrorMessage("Error activando suscripción del agente " + agenteUUID + ": " + err.Error())
+		if err = deps.AgenteRepo.UpdateSubscription(ctx, map[string]any{
+			"is_subscribed":          true,
+			"stripe_subscription_id": subscriptionID,
+		}, "agente_uuid = ?", agenteUUID); err != nil {
+			services.Log.ErrorMessage("Error activando suscripción del agente " + agenteUUID + ": " + err.Error())
 			services.HandleResponseError(http.StatusInternalServerError, "Error interno actualizando DB", w)
 			return
 		}
 
-		// Obtener current_period_end desde Stripe y guardarlo inmediatamente
 		if subscriptionID != "" {
-			stripe.Key = os.Getenv("STRIPE_SECRET")
 			sub, subErr := stripesubscription.Get(subscriptionID, nil)
 			if subErr != nil {
-				services.NewLogger().ErrorMessage("Error obteniendo suscripción " + subscriptionID + ": " + subErr.Error())
+				services.Log.ErrorMessage("Error obteniendo suscripción " + subscriptionID + ": " + subErr.Error())
 			} else {
-				fmt.Printf("[DEBUG] stripe.Get OK — subscriptionID: %s | CurrentPeriodEnd: %d | CancelAtPeriodEnd: %v | agente: %s\n",
-					subscriptionID, sub.CurrentPeriodEnd, sub.CancelAtPeriodEnd, agenteUUID)
-				result, dbErr := db.Client.Exec(
-					`UPDATE agentes SET cancel_at_period_end = $1, current_period_end = $2 WHERE agente_uuid = $3`,
-					sub.CancelAtPeriodEnd, sub.CurrentPeriodEnd, agenteUUID,
-				)
-				if dbErr != nil {
-					services.NewLogger().ErrorMessage("Error guardando current_period_end: " + dbErr.Error())
-				} else {
-					rows, _ := result.RowsAffected()
-					fmt.Printf("[DEBUG] current_period_end update — rows afectadas: %d\n", rows)
+				if dbErr := deps.AgenteRepo.UpdateSubscription(ctx, map[string]any{
+					"cancel_at_period_end": sub.CancelAtPeriodEnd,
+					"current_period_end":   sub.CurrentPeriodEnd,
+				}, "agente_uuid = ?", agenteUUID); dbErr != nil {
+					services.Log.ErrorMessage("Error guardando current_period_end: " + dbErr.Error())
 				}
 			}
 		}
 
 	case "customer.subscription.updated":
-		// Maneja renovaciones y cancelaciones (no la creación inicial, que llega antes de checkout.session.completed)
 		subBytes, err := json.Marshal(event.Data.Object)
 		if err != nil {
 			services.HandleResponseError(http.StatusInternalServerError, "Error serializando suscripción", w)
@@ -163,19 +153,15 @@ func StripeWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		fmt.Printf("[DEBUG] subscription.updated — ID: %s | CurrentPeriodEnd: %d | CancelAtPeriodEnd: %v\n",
-			sub.ID, sub.CurrentPeriodEnd, sub.CancelAtPeriodEnd)
-
 		if sub.CurrentPeriodEnd == 0 {
-			fmt.Printf("[DEBUG] subscription.updated — CurrentPeriodEnd es 0, omitiendo update para no sobreescribir\n")
 			break
 		}
 
-		if _, err = db.Client.Exec(
-			`UPDATE agentes SET cancel_at_period_end = $1, current_period_end = $2 WHERE stripe_subscription_id = $3`,
-			sub.CancelAtPeriodEnd, sub.CurrentPeriodEnd, sub.ID,
-		); err != nil {
-			services.NewLogger().ErrorMessage("Error actualizando estado de suscripción " + sub.ID + ": " + err.Error())
+		if err = deps.AgenteRepo.UpdateSubscription(ctx, map[string]any{
+			"cancel_at_period_end": sub.CancelAtPeriodEnd,
+			"current_period_end":   sub.CurrentPeriodEnd,
+		}, "stripe_subscription_id = ?", sub.ID); err != nil {
+			services.Log.ErrorMessage("Error actualizando estado de suscripción " + sub.ID + ": " + err.Error())
 			services.HandleResponseError(http.StatusInternalServerError, "Error interno actualizando DB", w)
 			return
 		}
@@ -197,11 +183,10 @@ func StripeWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if _, err = db.Client.Exec(
-			`UPDATE agentes SET is_subscribed = true WHERE stripe_subscription_id = $1`,
-			invoice.Subscription.ID,
-		); err != nil {
-			services.NewLogger().ErrorMessage("Error renovando suscripción " + invoice.Subscription.ID + ": " + err.Error())
+		if err = deps.AgenteRepo.UpdateSubscription(ctx, map[string]any{
+			"is_subscribed": true,
+		}, "stripe_subscription_id = ?", invoice.Subscription.ID); err != nil {
+			services.Log.ErrorMessage("Error renovando suscripción " + invoice.Subscription.ID + ": " + err.Error())
 			services.HandleResponseError(http.StatusInternalServerError, "Error interno actualizando DB", w)
 			return
 		}
@@ -223,11 +208,10 @@ func StripeWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if _, err = db.Client.Exec(
-			`UPDATE agentes SET is_subscribed = false WHERE stripe_subscription_id = $1`,
-			invoice.Subscription.ID,
-		); err != nil {
-			services.NewLogger().ErrorMessage("Error desactivando suscripción por fallo de cobro " + invoice.Subscription.ID + ": " + err.Error())
+		if err = deps.AgenteRepo.UpdateSubscription(ctx, map[string]any{
+			"is_subscribed": false,
+		}, "stripe_subscription_id = ?", invoice.Subscription.ID); err != nil {
+			services.Log.ErrorMessage("Error desactivando suscripción por fallo de cobro " + invoice.Subscription.ID + ": " + err.Error())
 			services.HandleResponseError(http.StatusInternalServerError, "Error interno actualizando DB", w)
 			return
 		}
@@ -245,11 +229,13 @@ func StripeWebhookHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if _, err = db.Client.Exec(
-			`UPDATE agentes SET is_subscribed = false, cancel_at_period_end = false, current_period_end = 0, stripe_subscription_id = NULL WHERE stripe_subscription_id = $1`,
-			sub.ID,
-		); err != nil {
-			services.NewLogger().ErrorMessage("Error desactivando suscripción eliminada " + sub.ID + ": " + err.Error())
+		if err = deps.AgenteRepo.UpdateSubscription(ctx, map[string]any{
+			"is_subscribed":          false,
+			"cancel_at_period_end":   false,
+			"current_period_end":     0,
+			"stripe_subscription_id": nil,
+		}, "stripe_subscription_id = ?", sub.ID); err != nil {
+			services.Log.ErrorMessage("Error desactivando suscripción eliminada " + sub.ID + ": " + err.Error())
 			services.HandleResponseError(http.StatusInternalServerError, "Error interno actualizando DB", w)
 			return
 		}
@@ -265,14 +251,16 @@ func ApiGetSubscriptionStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload internal.SubscriptionStatusPayload
-	err := db.Client.QueryRow(
-		`SELECT is_subscribed, cancel_at_period_end, current_period_end FROM agentes WHERE agente_uuid = $1`,
-		agente_uuid,
-	).Scan(&payload.IsSubscribed, &payload.CancelAtPeriodEnd, &payload.CurrentPeriodEnd)
+	agente, err := deps.AgenteRepo.GetSubscriptionStatus(r.Context(), agente_uuid)
 	if err != nil {
 		services.HandleResponseError(http.StatusInternalServerError, "Error consultando suscripción", w)
 		return
+	}
+
+	payload := dto.SubscriptionStatusPayload{
+		IsSubscribed:      agente.IsSubscribed,
+		CancelAtPeriodEnd: agente.CancelAtPeriodEnd,
+		CurrentPeriodEnd:  agente.CurrentPeriodEnd,
 	}
 
 	services.HandleResponseSuccessWithData(payload, w)
@@ -285,10 +273,7 @@ func ApiCancelSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var subscriptionID string
-	err := db.Client.QueryRow(
-		`SELECT COALESCE(stripe_subscription_id, '') FROM agentes WHERE agente_uuid = $1`, agente_uuid,
-	).Scan(&subscriptionID)
+	subscriptionID, err := deps.AgenteRepo.GetSubscriptionID(r.Context(), agente_uuid)
 	if err != nil || subscriptionID == "" {
 		services.HandleResponseError(http.StatusBadRequest, "No se encontró una suscripción activa", w)
 		return
@@ -298,20 +283,21 @@ func ApiCancelSubscription(w http.ResponseWriter, r *http.Request) {
 		CancelAtPeriodEnd: stripe.Bool(true),
 	})
 	if err != nil {
-		services.NewLogger().ErrorMessage("Error programando cancelación en Stripe " + subscriptionID + ": " + err.Error())
+		services.Log.ErrorMessage("Error programando cancelación en Stripe " + subscriptionID + ": " + err.Error())
 		services.HandleResponseError(http.StatusInternalServerError, "Error cancelando suscripción en Stripe", w)
 		return
 	}
-	if _, err = db.Client.Exec(
-		`UPDATE agentes SET cancel_at_period_end = $1, current_period_end = $2 WHERE agente_uuid = $3`,
-		updatedSub.CancelAtPeriodEnd, updatedSub.CurrentPeriodEnd, agente_uuid,
-	); err != nil {
-		services.NewLogger().ErrorMessage("Error actualizando cancelación en DB " + subscriptionID + ": " + err.Error())
+
+	if err = deps.AgenteRepo.UpdateSubscription(r.Context(), map[string]any{
+		"cancel_at_period_end": updatedSub.CancelAtPeriodEnd,
+		"current_period_end":   updatedSub.CurrentPeriodEnd,
+	}, "agente_uuid = ?", agente_uuid); err != nil {
+		services.Log.ErrorMessage("Error actualizando cancelación en DB " + subscriptionID + ": " + err.Error())
 		services.HandleResponseError(http.StatusInternalServerError, "Error interno actualizando DB", w)
 		return
 	}
 
-	services.HandleResponseSuccessWithData(map[string]interface{}{
+	services.HandleResponseSuccessWithData(map[string]any{
 		"cancel_at_period_end": updatedSub.CancelAtPeriodEnd,
 		"current_period_end":   updatedSub.CurrentPeriodEnd,
 	}, w)

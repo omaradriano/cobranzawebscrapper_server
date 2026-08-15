@@ -8,7 +8,9 @@ import (
 	"github.com/omaradriano/cobranzawebscrapper_server/configs"
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
 	"github.com/omaradriano/cobranzawebscrapper_server/env"
+	"github.com/omaradriano/cobranzawebscrapper_server/internal/handlers"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
+	"github.com/omaradriano/cobranzawebscrapper_server/internal/repository"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/services"
 	"github.com/stripe/stripe-go/v74"
 )
@@ -18,21 +20,20 @@ func main() {
 	middlewares.JwtSecret = env.Envs.JWTSecret
 	stripe.Key = env.Envs.StripeSecret
 
-	dbConn, err := db.CreateDbConn()
+	gormConn, err := db.CreateGormConn()
 	if err != nil {
-		services.NewLogger().ErrorMessage(err.Error())
+		services.Log.ErrorMessage(err.Error())
 		return
 	}
+	db.GormDB = gormConn
 
-	db.Client = dbConn
-	defer db.Client.Close()
+	handlers.InitDeps(gormConn)
+	db.SetTokenValidator(repository.NewAgenteRepository(gormConn))
 
-	http.HandleFunc("/", configs.Serve)
+	router := configs.NewRouter()
 
 	fmt.Printf("Servidor corriendo en http://%s:%v\n", env.Envs.ServerHost, env.Envs.ServerPort)
 	fmt.Printf("----------------------------------------\n")
 
-	handler := services.EnableCORS(http.DefaultServeMux)
-
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(`:%s`, env.Envs.ServerPort), handler))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(`:%s`, env.Envs.ServerPort), router))
 }

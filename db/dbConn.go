@@ -1,34 +1,58 @@
 package db
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
+	"time"
 
-	_ "github.com/lib/pq"
 	"github.com/omaradriano/cobranzawebscrapper_server/env"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
-var Client *sql.DB
+var GormDB *gorm.DB
 
-// Esto es lo que contiene la conexion general a la base de datos
-type Env struct {
-	DbClient *sql.DB
+type TokenValidator interface {
+	ValidateResetToken(token string) (uuid, email, noAgente string, expires time.Time, err error)
+	ValidateConfirmationToken(token string) (uuid string, expires time.Time, err error)
 }
 
-func CreateDbConn() (*sql.DB, error) {
+var AgenteRepo TokenValidator
+
+type tokenValidatorAdapter struct {
+	repo interface {
+		ValidateResetToken(ctx context.Context, token string) (string, string, string, time.Time, error)
+		ValidateConfirmationToken(ctx context.Context, token string) (string, time.Time, error)
+	}
+}
+
+func (a *tokenValidatorAdapter) ValidateResetToken(token string) (string, string, string, time.Time, error) {
+	return a.repo.ValidateResetToken(context.Background(), token)
+}
+
+func (a *tokenValidatorAdapter) ValidateConfirmationToken(token string) (string, time.Time, error) {
+	return a.repo.ValidateConfirmationToken(context.Background(), token)
+}
+
+func SetTokenValidator(repo interface {
+	ValidateResetToken(ctx context.Context, token string) (string, string, string, time.Time, error)
+	ValidateConfirmationToken(ctx context.Context, token string) (string, time.Time, error)
+}) {
+	AgenteRepo = &tokenValidatorAdapter{repo: repo}
+}
+
+func CreateGormConn() (*gorm.DB, error) {
 	connStr := env.Envs.DB_URL
 
-	Client, err := sql.Open("postgres", connStr)
+	db, err := gorm.Open(postgres.Open(connStr), &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{
+			SingularTable: true,
+		},
+	})
 	if err != nil {
-		fmt.Println("Error al abrir la definición de la conexión:", err)
-		return nil, err
+		return nil, fmt.Errorf("error conectando a PostgreSQL con GORM: %w", err)
 	}
 
-	err = Client.Ping()
-	if err != nil {
-		fmt.Println("No se pudo conectar a Postgres:", err)
-		return nil, err
-	}
-
-	return Client, nil
+	return db, nil
 }

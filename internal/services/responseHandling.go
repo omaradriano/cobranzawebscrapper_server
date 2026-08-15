@@ -10,13 +10,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/omaradriano/cobranzawebscrapper_server/db"
-	"github.com/omaradriano/cobranzawebscrapper_server/internal"
+	"github.com/omaradriano/cobranzawebscrapper_server/internal/dto"
 	"github.com/omaradriano/cobranzawebscrapper_server/internal/middlewares"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func HandleResponseError(Code int, Message string, w http.ResponseWriter) {
-	customErr := &internal.HttpError{
+	customErr := &dto.HttpError{
 		Code:    Code,
 		Message: Message,
 		Success: false,
@@ -24,7 +24,7 @@ func HandleResponseError(Code int, Message string, w http.ResponseWriter) {
 
 	jsonResponse, err := json.Marshal(customErr)
 	if err != nil {
-		NewLogger().ErrorMessage(err.Error())
+		Log.ErrorMessage(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -35,7 +35,7 @@ func HandleResponseError(Code int, Message string, w http.ResponseWriter) {
 }
 
 func HandleResponseSuccessWithData(Payload interface{}, w http.ResponseWriter) {
-	customSuccess := &internal.HttpSuccess{
+	customSuccess := &dto.HttpSuccess{
 		Code:    http.StatusOK,
 		Payload: Payload,
 		Success: true,
@@ -43,18 +43,18 @@ func HandleResponseSuccessWithData(Payload interface{}, w http.ResponseWriter) {
 
 	jsonResponse, err := json.Marshal(customSuccess)
 	if err != nil {
-		NewLogger().ErrorMessage(err.Error())
+		Log.ErrorMessage(err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(http.StatusOK)
 	w.Write(jsonResponse)
 }
 
 func HandleResponseSuccess(w http.ResponseWriter) {
-	customSuccess := &internal.HttpSuccess{
+	customSuccess := &dto.HttpSuccess{
 		Code:    http.StatusAccepted,
 		Success: true,
 	}
@@ -97,18 +97,8 @@ func GenerateSecureToken() (string, error) {
 }
 
 func ValidateResetToken(token string) (string, string, error) {
-	var user_uuid string
-	var email string
-	var no_agente string
-	var expires time.Time
-
-	err := db.Client.QueryRow(`
-		SELECT agente_uuid, email, reset_expires, no_agente
-		FROM agentes
-		WHERE reset_token = $1
-	`, token).Scan(&user_uuid, &email, &expires, &no_agente)
+	uuid, email, _, expires, err := db.AgenteRepo.ValidateResetToken(token)
 	if err != nil {
-		fmt.Println(err.Error())
 		return "", "", fmt.Errorf("token inválido")
 	}
 
@@ -116,18 +106,11 @@ func ValidateResetToken(token string) (string, string, error) {
 		return "", "", fmt.Errorf("token expirado")
 	}
 
-	return user_uuid, email, nil
+	return uuid, email, nil
 }
 
 func ValidateConfirmationToken(token string) (string, error) {
-	var user_uuid string
-	var expires time.Time
-
-	err := db.Client.QueryRow(`
-		SELECT agente_uuid, verification_expires
-		FROM agentes
-		WHERE verification_token = $1
-	`, token).Scan(&user_uuid, &expires)
+	uuid, expires, err := db.AgenteRepo.ValidateConfirmationToken(token)
 	if err != nil {
 		return "", fmt.Errorf("token inválido")
 	}
@@ -136,7 +119,7 @@ func ValidateConfirmationToken(token string) (string, error) {
 		return "", fmt.Errorf("token expirado")
 	}
 
-	return user_uuid, nil
+	return uuid, nil
 }
 
 func HashPassword(password string) (string, error) {
@@ -150,6 +133,10 @@ func CheckPassword(hash, password string) bool {
 }
 
 func EnableCORS(next http.Handler) http.Handler {
+	return CORSMiddleware(next)
+}
+
+func CORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
