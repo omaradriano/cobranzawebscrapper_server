@@ -43,6 +43,9 @@ func NewRouter() http.Handler {
 			r.Get("/scrapping/poliza/{polizaNum}", handlers.ApiGetPoliza)
 			r.Get("/polizas/birthdates", handlers.ApiGetBirthdates)
 
+			// Poliza update
+			r.Patch("/scrapping/poliza", handlers.ApiPatchPoliza)
+
 			// Payments
 			r.Patch("/payments/poliza", handlers.ApiSetPayment)
 

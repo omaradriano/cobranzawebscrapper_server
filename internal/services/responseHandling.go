@@ -143,6 +143,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		if origin == "http://localhost:5173" ||
 			origin == "https://www.goagent.com.mx" ||
 			origin == "https://goagent.com.mx" ||
+			origin == "chrome-extension://bnhggcmlbinhmheijhmlfjoefgldkpdp" ||
 			origin == "chrome-extension://jgahlmealgaocieaemladngafmbbfgdo" ||
 			origin == "chrome-extension://acihafkligkgjbhmbgaidkackhojbokh" {
 

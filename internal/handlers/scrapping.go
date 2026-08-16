@@ -309,6 +309,43 @@ func ApiPostPoliza(w http.ResponseWriter, r *http.Request) {
 	services.HandleResponseSuccess(w)
 }
 
+func ApiPatchPoliza(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Methods", "PATCH")
+
+	userUUID, _ := r.Context().Value(middlewares.UserIDKey).(string)
+
+	var item dto.PatchItem_Poliza
+	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
+		services.HandleResponseError(http.StatusBadRequest, "Error decodificando JSON", w)
+		return
+	}
+
+	if item.NumPoliza == "" {
+		services.HandleResponseError(http.StatusBadRequest, "Número de póliza requerido", w)
+		return
+	}
+
+	if item.DiaCobro < 0 || item.DiaCobro > 31 {
+		services.HandleResponseError(http.StatusBadRequest, "Día de cobro inválido (debe ser entre 0 y 31)", w)
+		return
+	}
+
+	agenteID, err := deps.AgenteRepo.FindIDByUUID(r.Context(), userUUID)
+	if err != nil {
+		services.Log.ErrorMessage(err.Error())
+		services.HandleResponseError(http.StatusConflict, "Error obteniendo información del agente", w)
+		return
+	}
+
+	if err := deps.PolizaRepo.UpdateDiaCobro(r.Context(), item.NumPoliza, agenteID, item.DiaCobro); err != nil {
+		services.Log.ErrorMessage(err.Error())
+		services.HandleResponseError(http.StatusConflict, "Error actualizando día de cobro", w)
+		return
+	}
+
+	services.HandleResponseSuccess(w)
+}
+
 func ApiGetDetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET")
 

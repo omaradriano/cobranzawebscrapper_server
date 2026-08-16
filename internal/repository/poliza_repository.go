@@ -40,6 +40,7 @@ type PolizaRepository interface {
 	GetPolizaWithAsegurados(ctx context.Context, numPoliza string, agenteID int) (*models.Poliza, error)
 	GetPolizasPaginated(ctx context.Context, filters PolizaFilters) ([]map[string]any, int64, error)
 	GetBirthdates(ctx context.Context, agenteID int) ([]BirthdateResult, error)
+	UpdateDiaCobro(ctx context.Context, numPoliza string, agenteID int, diaCobro int16) error
 }
 
 type polizaRepository struct {
@@ -213,6 +214,20 @@ func (r *polizaRepository) GetPolizasPaginated(ctx context.Context, filters Poli
 	}
 
 	return results, totalRecords, err
+}
+
+func (r *polizaRepository) UpdateDiaCobro(ctx context.Context, numPoliza string, agenteID int, diaCobro int16) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.Poliza{}).
+		Where("numpoliza = ? AND agente_id = ?", numPoliza, agenteID).
+		Update("dia_cobro", diaCobro)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *polizaRepository) GetBirthdates(ctx context.Context, agenteID int) ([]BirthdateResult, error) {

@@ -25,6 +25,11 @@ type PostItems_Poliza struct {
 	Payload []PostItem_Poliza `json:"payload"`
 }
 
+type PatchItem_Poliza struct {
+	NumPoliza string `json:"numpoliza"`
+	DiaCobro  int16  `json:"dia_cobro"`
+}
+
 type CobranzaItemPayment struct {
 	Poliza     string `json:"poliza"`
 	PaidPeriod string `json:"paid_period"`
